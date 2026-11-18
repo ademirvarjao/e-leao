@@ -1,0 +1,23 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import {PGlite} from '@electric-sql/pglite';
+test('recuperação só pelo dono: expira, não reusa e revoga sessões',async()=>{const db=new PGlite();try{
+ await db.exec(`create role anon nologin; create role authenticated nologin; create role service_role nologin; create schema auth; create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,raw_user_meta_data jsonb default '{}'::jsonb); create table auth.sessions(id uuid primary key,user_id uuid references auth.users(id)); create function auth.uid() returns uuid stable language sql as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$; grant usage on schema auth to authenticated; grant execute on function auth.uid() to authenticated;`);
+ for(const name of ['20261118000100_eleao_workspace.sql','20261118000300_eleao_owner_claim.sql','20261118000400_access_approval.sql','20261118000600_manual_invites.sql','20261118000900_password_recovery.sql'])await db.exec(await readFile(new URL('../supabase/migrations/'+name,import.meta.url),'utf8'));
+ const owner='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',member='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',other='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+ await db.query("insert into auth.users(id,email,email_confirmed_at) values($1,'ademirvarjao@gmail.com',now()),($2,'member@example.test',now()),($3,'other@example.test',now())",[owner,member,other]);
+ const as=async(role:string,id:string,q:string,p:unknown[]=[])=>{await db.exec('begin');try{await db.exec(`set local role ${role}`);await db.query("select set_config('request.jwt.claim.sub',$1,true)",[id]);const r=await db.query(q,p);await db.exec('commit');return r}catch(e){await db.exec('rollback');throw e}};
+ await as('authenticated',owner,'select public.eleao_claim_owner()');await db.query("update public.eleao_profiles set active=true,approval_status='approved' where id=$1",[member]);
+ await assert.rejects(()=>as('authenticated',other,'select public.eleao_issue_password_reset($1,$2)',[member,'a'.repeat(64)]));
+ await assert.rejects(()=>as('authenticated',owner,'select public.eleao_issue_password_reset($1,$2)',[owner,'a'.repeat(64)]));
+ await as('authenticated',owner,'select public.eleao_issue_password_reset($1,$2)',[member,'a'.repeat(64)]);
+ await as('authenticated',owner,'select public.eleao_issue_password_reset($1,$2)',[member,'b'.repeat(64)]);
+ assert.equal((await as('service_role','','select * from public.eleao_reserve_password_reset($1)',['a'.repeat(64)])).rows.length,0);
+ await db.exec("update public.eleao_password_recovery set expires_at=now()-interval '1 second' where status='issued'");
+ assert.equal((await as('service_role','','select * from public.eleao_reserve_password_reset($1)',['b'.repeat(64)])).rows.length,0);
+ await as('authenticated',owner,'select public.eleao_issue_password_reset($1,$2)',[member,'c'.repeat(64)]);
+ await assert.rejects(()=>as('anon','','select * from public.eleao_reserve_password_reset($1)',['c'.repeat(64)]));
+ const row=(await as('service_role','','select * from public.eleao_reserve_password_reset($1)',['c'.repeat(64)])).rows[0] as {reset_id:string};
+ assert.equal((await as('service_role','','select * from public.eleao_reserve_password_reset($1)',['c'.repeat(64)])).rows.length,0);
+ await db.query("insert into auth.sessions(id,user_id) values('cccccccc-cccc-4ccc-8ccc-cccccccccccc',$1)",[member]);
+ await as('service_role','','select public.eleao_finish_password_reset($1,$2)',[row.reset_id,member]);assert.equal((await db.query('select count(*)::int n from auth.sessions')).rows[0].n,0);
+ await assert.rejects(()=>as('service_role','','select public.eleao_finish_password_reset($1,$2)',[row.reset_id,member]));
+ }finally{await db.close()}});
