@@ -1,0 +1,53 @@
+# Análise dos projetos RTC da Receita Federal e escopo do e-Leão
+
+**Análise realizada em 18/11/2026.** Os três projetos foram examinados nas versões publicadas e no código, documentação, exemplos, contratos, testes, migrações e fluxo de construção disponíveis à data. Este registo distingue cuidadosamente cálculo, preparação de documentos e autorização fiscal.
+
+## Conclusões executivas
+
+| Projeto | Componente analisado | O que entrega | O que não se deve inferir |
+|---|---|---|---|
+| [calculadora-rtc-regime-regular, tag 1.6.1](https://github.com/ReceitaFederal/calculadora-rtc-regime-regular/tree/150cccbe414d4a5edea703e4f7a424af5aa222c7) | API Java 21 / Spring Boot 3.5.16, SQLite exclusivamente de consulta, Flyway e OpenAPI | Apuração experimental por item de CBS, IBS e IS, observabilidade de resultados, regras vigentes, dados/catálogos RTC e funções de base unificada — inclusive o contrato voltado à base da NFS-e | A resposta não atesta situação fiscal, credenciamento do prestador, autorização SEFIN, quitação, direito a crédito nem emissão de NFS-e. Um HTTP 200 no endpoint de observabilidade não significa que todos os itens tenham sido calculados |
+| [calculadora-rtc-simples-nacional, tag 0.0.6](https://github.com/ReceitaFederal/calculadora-rtc-simples-nacional/tree/c5b0f01c8351c3f0d0795cc617b29d233e9f98df) | API Java, contratos e regras de RTC específicos do Simples | Avaliação por operação/documento e por item para IBS/CBS, classificações, datas e condições próprias do SN, com observabilidade individual | Não é a apuração mensal do DAS/PGDAS-D, não escolhe todos os dados tributários do contribuinte e não deve ser alimentada com exemplos do regime regular. A documentação inspecionada contém divergência de caminho do repositório/artefato e seu workflow obtém Flyway do projeto do regime regular |
+| [calculadora-rtc-gerador-danfse, tag 1.0.0](https://github.com/ReceitaFederal/calculadora-rtc-gerador-danfse/tree/8d79e6b2f7fad6375340afcb51c85ed370c64a14) | Go/Echo, renderer compartilhado pelo serviço HTTP e por WASM no navegador | Converte o XML de uma NFS-e nacional em sua representação auxiliar DANFSe/PDF, com estado e canhoto | É um renderer de nota/documento já existente. **Não** gera DPS, assina certificado, transmite para SEFIN, autoriza nem autentica a nota. O próprio roadmap delimita essa exclusão |
+
+## 1. Regime regular — entrada, cálculo e integração
+
+A API de observabilidade documentada é `POST /api/calculadora/observabilidade/regime-geral`. Ela permite examinar o estado de cada item e a memória dos resultados, inclusive quando alguns itens são inconsistentes, não implementados ou tecnicamente falham. Estados como `CALCULADO`, `CALCULO_SIMULADO`, `INCONSISTENCIA_ENTRADA`, `NAO_IMPLEMENTADO` e `FALHA_TECNICA` são materialmente diferentes. Não se deve somar itens parciais como se fossem a apuração integral. A modalidade transacional regular pode rejeitar a operação inteira na primeira validação.
+
+A versão inspecionada utiliza `dhFatoGerador` — não o campo deprecado `dataHoraEmissao` — e impõe requisitos datados sobre `aliquotasNominais`: não as enviar antes de 2027; a partir de 2027, informar os valores nominais exigidos pelo contrato. A resposta sinaliza dados simulados (`x-warning-dados-simulados`). As regras e os valores mudam com a data. Versões anteriores e exemplos não substituem a versão datada do catálogo e do banco de regras executado.
+
+O endpoint `POST /api/calculadora/base-calculo/base-calculo-unificada-nfse` é especificamente para compor a base nos regimes indicados pelo seu contrato (incluindo `anoFatoGerador`, `opSimpNac` e `situacao`, além dos demais campos condicionais). **Não é o emissor NFS-e**. As regras verificadas têm cálculo decimal e arredondamento próprios; a UI mantém os dados brutos e o resultado original, em vez de alegar equivalência com uma estimativa local.
+
+Execução de desenvolvimento upstream: Java 21; sua configuração de exemplo offline atende 8080 e o banco local é criado pelo Flyway. O ficheiro de configuração comercial/profissional também é separado. O repositório não forneceu artefacto binário utilizável na publicação examinada. A versão upstream continua sujeita à licença e instruções originais.
+
+## 2. Simples Nacional — contrato independente
+
+O endpoint de observabilidade consultado é `POST /api/calculadora/observabilidade/simples-nacional`. A operação e os itens têm um contrato próprio: a operação fornece data, tipo de documento, `CRT` e demais qualificadores aplicáveis; os itens identificam a atividade/classificação e levam valores decimais de base, IS e percentuais de IBS/CBS. O valor decimal representado como texto integra o contrato SN; não adaptar automaticamente campos de exemplos do regime geral.
+
+A resposta também exige inspeção por `estadoItem`: o envelope HTTP 200 não atesta sucesso de cada item. Os identificadores de erro `VSN-*`, o catálogo de atividades com consulta por data e condições como disponibilidade do Fator R devem ser tratados pelo adaptador do regime. As migrações datadas prevalecem sobre afirmações desatualizadas em README: a V0050 examinada inclui documentos NFS-e 91, NF-e 55 e NFC-e 65 com vigência em 01/01/2027, além de atividades de serviço indicadas no catálogo. Consultar a atividade para a data correta.
+
+O teste de referência SN 2027-03-15 considerado nesta análise tem uma base de R$ 950,00, IS de R$ 50,00 fora da base RBSN, IBS a 1,25% de R$ 11,88 e CBS a 2,75% de R$ 26,12, total tributário de R$ 88,00 no respectivo caso. Isto é um exemplo de contrato/regra e não uma taxa geral, taxa vigente universal, DAS ou recomendação de enquadramento.
+
+Há uma inconsistência upstream que o operador de deployment deve verificar: o README aponta para recursos como se o repositório fosse autorreferente, enquanto o workflow importa `flyway/` do projeto do regime regular. O YAML verificado usa a porta 8082 e declara um JAR cujo nome não coincide integralmente com o rodapé documental. Não publicar um serviço baseado só no nome apresentado no README: verificar versão, migrations, imagem/configuração e health check.
+
+## 3. DANFSe — renderer, serviço HTTP e WASM
+
+O serviço `POST /api/danfse` aceita XML e retorna PDF; `stc` tem os valores de estado esperados, `canhoto` é opcional (padrão true), e existe limite de upload configurável (padrão HTTP inspecionado 5 MiB, configuração até 32 MiB). Health endpoints são `/health/live` e `/health/ready`. O projeto contempla OpenTelemetry opt-in e evita registar XML/dados pessoais em logs.
+
+A compilação WASM exporta `danfseWasm.gerarPdf(JSON.stringify({xml,stc,canhoto}))` e devolve PDF em base64/`size` ou `error`. É uma possibilidade técnica para uma futura implementação inteiramente local após selecionar, compilar e validar a versão do Go e respetivo glue runtime. O atual frontend chama um proxy backend allow-listed, não baixa uma build WASM especulativa. Um arquivo só pode ser enviado após consentimento e ao gerador de PDF. Um PDF jamais substitui a autorização/autenticidade da NFS-e.
+
+## Decisões da implementação
+
+- **Estimativa rápida ≠ motor oficial.** A calculadora leve arredonda a centavos com decimal HALF_EVEN e aceita apenas taxas expressamente fornecidas pelo utilizador; é apresentada como estimativa, não calcula créditos, elegibilidade, PGDAS-D ou saldo fiscal. Não reutiliza os valores do teste SN como alíquotas padrão.
+- **Motor RTC isolado.** O utilizador envia o JSON original para um endpoint administrado, com timeout e listas fixas de rotas. A tela preserva o HTTP, a resposta original, estado dos itens e aviso de simulação, sem guardar automaticamente o payload. O administrador pode configurar os endereços e a autenticação do servidor RTC. É necessário hospedar cada upstream compatível e respeitar os termos/licença.
+- **Rascunho ≠ nota emitida.** Os dados estruturados são guardados numa área privada e marcados como rascunho. A emissão oficial não foi representada como funcional: não há credencial, certificado digital de prestador nem provedor SEFIN confirmado. O botão/API de emissão bloqueia explicitamente sem esses elementos. Concluir no Emissor Nacional ou na solução municipal efetivamente autorizada; depois, gerar o DANFSe a partir do XML autorizado.
+- **Entrada de utilizador isolada.** O browser usa apenas a chave publicável do Supabase. RLS e grants separam perfil, dados, comentários e curadoria. A associação de uma nova conta ao produto é explícita após confirmar o e-mail; não existe trigger global de login. O primeiro admin só pode ser provisionado com ação voluntária do operador e chave secreta fora do cliente, nunca por username presumido ou campo de cadastro.
+- **FAQ/IA opt-in e curada.** A pesquisa local usa guias editoriais com fontes. A IA opcional só usa a pergunta e um guia recuperado, depende de chave configurada no servidor, tem limite de uso e deixa explícito o risco de enviar pergunta a um provedor. Conversas não são auto-treinamento; reações ao conteúdo não alteram artigos sem curadoria humana.
+- **Demonstração não é dado do contribuinte.** A navegação e cenários ilustrativos podem ser explorados sem autenticação e são apenas sessão local. Nenhuma ação demo grava dados remotos ou emite documento.
+
+## Referências técnicas examinadas
+
+- Código, documentos, examples, OpenAPI, ADRs, testes e migrations do regime regular na tag fixa 1.6.1.
+- Contratos `OperacaoSimplesInput`/`ItemSimplesInput`, testes do controller, ADR011, catálogos e migrações SN, incluindo V0050.
+- Código HTTP e `cmd/danfse-wasm`, roadmap, changelog, exemplos de serviço e PDF NT-008 v1.02 do renderer DANFSe.
+- Esta análise descreve as revisões upstream e **não** afirma que uma implementação de terceiros foi certificada ou homologada pela Receita Federal.

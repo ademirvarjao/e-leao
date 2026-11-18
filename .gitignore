@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env*
+!.env.example
+supabase/.temp/
+*.log
+playwright-report/
+test-results/
+*.pfx
+*.p12
+*.pem
