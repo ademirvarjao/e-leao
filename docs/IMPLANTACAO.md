@@ -17,9 +17,9 @@ Local: `npm ci && npm test && npm run build`. Para demonstração, `npm run dev`
 
 ## Provisão segura da conta de administrador
 
-**Conta indicada pelo proprietário: `ademirvarjao@gmail.com`.** Ela ainda não constava em `auth.users` na consulta ao Supabase. Instalei a migração específica `20261118000300_eleao_owner_claim.sql`: depois de criar essa conta no app e confirmar o e-mail, o fluxo verifica o endereço confirmado no próprio Supabase Auth e promove apenas a própria identidade a administradora. É um RPC autenticado, de alvo único, sem trigger global e sem senha/chave privilegiada no navegador. Uma conta com outro e-mail não consegue usar esse caminho.
+**Proprietário: `ademirvarjao@gmail.com`.** A conta já foi localizada no Supabase Auth com e-mail confirmado e, com autorização expressa do proprietário, seu perfil `eleao_profiles` foi provisionado como `admin` e `active=true`. Conferi também que RLS está habilitado e que o RPC de entrada e a rotina de bootstrap têm execução autorizada para usuários autenticados. A migração `20261118000300_eleao_owner_claim.sql` implementa ainda uma verificação autenticada, restrita à própria identidade e a esse endereço; não existe trigger global nem promoção de outros membros.
 
-Fluxo para você: abra o app, escolha **Criar conta**, use `ademirvarjao@gmail.com`, crie a senha e confirme o link enviado pelo Supabase; depois volte ao app e entre. O perfil administrativo será provisionado automaticamente na sessão confirmada. **Nenhuma conta foi criada ou promovida durante a verificação**, pois o endereço ainda não aparecia no Auth e uma senha não foi fornecida. O SMTP atual não está personalizado; a entrega depende do serviço de e-mail habilitado no projeto.
+Para usar a conta, abra o app, selecione **Entrar** e use a senha definida durante o cadastro. Se a sessão já estava aberta antes da promoção, saia e entre novamente ou recarregue a página. Não foi lida, alterada ou solicitada a senha. O SMTP personalizado segue não configurado; e-mails futuros dependem do serviço de e-mail habilitado no projeto.
 
 O script administrativo `npm run admin:invite -- --email ...` continua disponível para provisionamento operacional pelo próprio proprietário em uma máquina confiável, com credencial secreta efêmera fora do browser/Git. A promoção de outros membros continua deliberadamente ausente do dashboard.
 
