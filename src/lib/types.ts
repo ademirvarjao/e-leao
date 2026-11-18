@@ -4,4 +4,3 @@ export type Operation = {id:string;owner_id?:string;kind:'simulation'|'invoice';
 export type Article = {id:string;category:string;question:string;answer:string;source:string;keywords:string};
 export type Profile = {id:string;display_name:string;role:'admin'|'member';active:boolean;approval_status:'pending'|'approved'|'rejected';created_at:string};
 export const portal='https://www.nfse.gov.br/EmissorNacional';
-export const upstream={regular:'https://github.com/ReceitaFederal/calculadora-rtc-regime-regular/tree/150cccbe414d4a5edea703e4f7a424af5aa222c7',simple:'https://github.com/ReceitaFederal/calculadora-rtc-simples-nacional/tree/c5b0f01c8351c3f0d0795cc617b29d233e9f98df',danfse:'https://github.com/ReceitaFederal/calculadora-rtc-gerador-danfse/tree/8d79e6b2f7fad6375340afcb51c85ed370c64a14'};
