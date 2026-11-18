@@ -9,3 +9,6 @@ test-results/
 *.pfx
 *.p12
 *.pem
+
+__pycache__/
+*.pyc
