@@ -1,0 +1,25 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import {PGlite} from '@electric-sql/pglite';
+test('convite manual: requisição, proprietário, expiração e uso único',async()=>{const db=new PGlite();try{
+ await db.exec(`create role anon nologin; create role authenticated nologin; create role service_role nologin; create schema auth; create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,raw_user_meta_data jsonb default '{}'::jsonb); create function auth.uid() returns uuid stable language sql as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$; grant usage on schema auth to authenticated; grant execute on function auth.uid() to authenticated;`);
+ for(const name of ['20261118000100_eleao_workspace.sql','20261118000300_eleao_owner_claim.sql','20261118000400_access_approval.sql','20261118000600_manual_invites.sql'])await db.exec(await readFile(new URL('../supabase/migrations/'+name,import.meta.url),'utf8'));
+ const owner='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',other='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',member='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+ const as=async(role:string,id:string,q:string,p:unknown[]=[])=>{await db.exec('begin');try{await db.exec(`set local role ${role}`);await db.query("select set_config('request.jwt.claim.sub',$1,true)",[id]);const result=await db.query(q,p);await db.exec('commit');return result}catch(e){await db.exec('rollback');throw e}};
+ await db.query("insert into auth.users(id,email,email_confirmed_at) values($1,'ademirvarjao@gmail.com',now()),($2,'outro@exemplo.test',now())",[owner,other]);await as('authenticated',owner,'select public.eleao_claim_owner()');
+ await as('anon','',"select public.eleao_request_access('Membro','membro@exemplo.test')");await as('anon','',"select public.eleao_request_access('Membro','membro@exemplo.test')");
+ await assert.rejects(()=>as('anon','',"select * from public.eleao_list_access_requests()"));
+ await assert.rejects(()=>as('anon','',"select public.eleao_request_access('X','ademirvarjao@gmail.com')"));
+ const requests=await as('authenticated',owner,'select * from public.eleao_list_access_requests()');assert.equal(requests.rows.filter((x:any)=>x.email==='membro@exemplo.test').length,1);const id=(requests.rows.find((x:any)=>x.email==='membro@exemplo.test') as any).id;const token='a'.repeat(64);
+ await assert.rejects(()=>as('authenticated',other,'select public.eleao_issue_invite($1,$2)',[id,token]));
+ await as('authenticated',owner,'select public.eleao_issue_invite($1,$2)',[id,'b'.repeat(64)]);
+ await as('authenticated',owner,'select public.eleao_issue_invite($1,$2)',[id,token]);
+ assert.equal((await as('service_role','','select * from public.eleao_reserve_invite($1)',['b'.repeat(64)])).rows.length,0);
+ await db.query("update public.eleao_access_requests set expires_at=now()-interval '1 second' where id=$1",[id]);
+ assert.equal((await as('service_role','','select * from public.eleao_reserve_invite($1)',[token])).rows.length,0);
+ await as('authenticated',owner,'select public.eleao_issue_invite($1,$2)',[id,token]);
+ await assert.rejects(()=>as('anon','','select * from public.eleao_reserve_invite($1)',[token]));
+ assert.equal((await as('service_role','','select * from public.eleao_reserve_invite($1)',[token])).rows.length,1);
+ assert.equal((await as('service_role','','select * from public.eleao_reserve_invite($1)',[token])).rows.length,0);
+ await db.query("insert into auth.users(id,email,email_confirmed_at) values($1,'membro@exemplo.test',now())",[member]);
+ await as('service_role','','select public.eleao_finish_invite($1,$2)',[id,member]);assert.equal((await as('authenticated',member,'select public.eleao_is_active() as ok')).rows[0].ok,true);
+ await assert.rejects(()=>as('service_role','','select public.eleao_finish_invite($1,$2)',[id,member]));
+ }finally{await db.close()}});
