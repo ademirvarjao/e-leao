@@ -8,7 +8,6 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    environment: github-pages
     env:
       VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
     steps:
