@@ -9,7 +9,7 @@ import type {Article,Operation,Profile} from './types';
 export type AuthMode='login'|'signup'|'reset'|'password'|'invite'|'recovery';
 type InviteLink={kind:'invite'|'recovery';token:string};
 type Workspace={invite:InviteLink|null;clearInvite:()=>void;session:Session|null;profile:Profile|null;operations:Operation[];knowledge:Article[];loading:boolean;error:string;period:string;setPeriod:(s:string)=>void;reload:()=>void;save:(o:Operation,edit?:boolean)=>Promise<void>;remove:(o:Operation)=>Promise<void>;notify:(s:string)=>void;message:string;authMode:AuthMode|null;auth:(m:AuthMode|null)=>void;feedback:(article:string,helpful:boolean)=>Promise<void>};
-const Ctx=createContext<Workspace|null>(null);
+export const Ctx=createContext<Workspace|null>(null);
 export const useSpace=()=>useContext(Ctx)!;
 const demoKey='eleao-demo-v1';
 function loadDemo(){try{const x=JSON.parse(sessionStorage.getItem(demoKey)||'null');if(Array.isArray(x))return sortOps(x)}catch{/* Storage disabled. */}return demoOperations()}
