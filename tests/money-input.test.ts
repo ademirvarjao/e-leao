@@ -11,7 +11,7 @@ test('campos em reais exibem separadores sem mudar os valores fiscais', async t 
   }
   dom.window.HTMLDialogElement.prototype.showModal = function () {this.open = true};
   dom.window.HTMLDialogElement.prototype.close = function () {this.open = false};
-  const {render, screen, cleanup} = await import('@testing-library/react');
+  const {render, screen, cleanup, fireEvent} = await import('@testing-library/react');
   const {default: userEvent} = await import('@testing-library/user-event');
   const {Ctx} = await import('../src/lib/workspace');
   const {db} = await import('../src/lib/client');
@@ -49,6 +49,33 @@ test('campos em reais exibem separadores sem mudar os valores fiscais', async t 
     assert.equal(op.base_cents, 1613213109);
     assert.equal(op.cbs_cents, 44371427);
     assert.equal(op.is_cents, 12346);
+  });
+
+  await t.test('referências são opt-in e não sobrevivem a mudança de vigência ou de regime', async t => {
+    t.after(cleanup);
+    const user = open(React.createElement(Calculator));
+    const date = screen.getByLabelText('Fato gerador');
+    fireEvent.change(date,{target:{value:'2026-01-15'}});
+    const cbs = screen.getByLabelText('Alíquota CBS (%)') as HTMLInputElement;
+    const ibs = screen.getByLabelText('Alíquota total IBS (%)') as HTMLInputElement;
+    assert.equal(cbs.value,'');assert.equal(ibs.value,'');
+    await user.type(screen.getByLabelText(/Base tributável ajustada/),'1000');
+    await user.click(screen.getByRole('button',{name:'Usar referência de 0,9% para CBS'}));
+    await user.click(screen.getByRole('button',{name:'Usar referência de 0,1% para IBS'}));
+    await user.click(screen.getByRole('button',{name:'Calcular estimativa'}));
+    await user.click(screen.getByRole('button',{name:'Salvar simulação'}));
+    assert.equal(saved.at(-1)?.cbs_cents,900);assert.equal(saved.at(-1)?.ibs_cents,100);
+    assert.match(saved.at(-1)!.details.refCbs,/art. 346/);
+    fireEvent.change(cbs,{target:{value:'2,1234'}});
+    fireEvent.change(date,{target:{value:'2027-01-01'}});
+    assert.equal(cbs.value,'2,1234');assert.equal(ibs.value,'');assert.equal(screen.queryByText('Simulação salva'),null);
+    assert.equal(screen.queryByRole('button',{name:/referência.*CBS/}),null);
+    await user.type(ibs,'0,1');
+    await user.click(screen.getByRole('button',{name:'Calcular estimativa'}));
+    await user.click(screen.getByRole('button',{name:'Salvar simulação'}));
+    assert.equal(saved.at(-1)?.details.refCbs,undefined);assert.equal(saved.at(-1)?.details.refIbs,undefined);
+    await user.selectOptions(screen.getByLabelText('Regime tributário'),'Simples Nacional');
+    assert.equal(screen.queryByRole('button',{name:/Usar referência/}),null);
   });
 
   await t.test('editar rascunho preserva centavos e não confunde ponto decimal colado com milhar', async t => {
