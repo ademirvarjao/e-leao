@@ -1,0 +1,5 @@
+import {LayoutDashboard,Calculator,Files,History,Sparkles,BookOpen,Settings2,ShieldCheck} from 'lucide-react';
+import type {Page} from '../lib/types';
+export const navItems=[{key:'visao-geral',label:'Visão geral',icon:LayoutDashboard,group:'Workspace'},{key:'calculadora',label:'Calculadora RTC',icon:Calculator,group:'Workspace'},{key:'notas',label:'Notas de serviço',icon:Files,group:'Workspace'},{key:'historico',label:'Histórico',icon:History,group:'Workspace'},{key:'assistente',label:'Assistente fiscal',icon:Sparkles,group:'Inteligência'},{key:'biblioteca',label:'Base de conhecimento',icon:BookOpen,group:'Inteligência'},{key:'configuracoes',label:'Configurações',icon:Settings2,group:'Sistema'},{key:'administracao',label:'Administração',icon:ShieldCheck,group:'Sistema'}] as const;
+export const navigate=(p:Page)=>{location.hash='/'+p};
+export const route=():Page=>{const s=location.hash.replace(/^#\/?/,'').split('?')[0];return navItems.find(x=>x.key===s)?.key||'visao-geral'};
