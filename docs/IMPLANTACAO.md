@@ -17,16 +17,11 @@ Local: `npm ci && npm test && npm run build`. Para demonstração, `npm run dev`
 
 ## Provisão segura da conta de administrador
 
-**É necessário que o proprietário identifique o endereço de e-mail verificado e aceite este procedimento. Nenhum endereço foi assumido nem promovido.** Primeiro, a pessoa conclui o convite/registra-se com o endereço que controla e confirma o e-mail. Num computador privado, adicione apenas temporariamente a `SUPABASE_URL` e a chave Supabase `sb_secret_...` (ou service_role legado) em `.env.local`, que está ignorado pelo Git:
+**Conta indicada pelo proprietário: `ademirvarjao@gmail.com`.** Ela ainda não constava em `auth.users` na consulta ao Supabase. Instalei a migração específica `20261118000300_eleao_owner_claim.sql`: depois de criar essa conta no app e confirmar o e-mail, o fluxo verifica o endereço confirmado no próprio Supabase Auth e promove apenas a própria identidade a administradora. É um RPC autenticado, de alvo único, sem trigger global e sem senha/chave privilegiada no navegador. Uma conta com outro e-mail não consegue usar esse caminho.
 
-```sh
-# Configuração de sessão privada — nunca VITE_ e nunca GitHub Variables/client JS
-SUPABASE_URL=https://byqhiewzkbqvvmldnwky.supabase.co
-SUPABASE_SECRET_KEY=sb_secret_…
-npm run admin:invite -- --email voce@seu-dominio.com
-```
+Fluxo para você: abra o app, escolha **Criar conta**, use `ademirvarjao@gmail.com`, crie a senha e confirme o link enviado pelo Supabase; depois volte ao app e entre. O perfil administrativo será provisionado automaticamente na sessão confirmada. **Nenhuma conta foi criada ou promovida durante a verificação**, pois o endereço ainda não aparecia no Auth e uma senha não foi fornecida. O SMTP atual não está personalizado; a entrega depende do serviço de e-mail habilitado no projeto.
 
-O comando envia o convite Auth se necessário e cria/ativa o perfil com `role=admin` através do cliente administrativo. Depois de confirmar o convite, execute novamente para provisionar o perfil; entre pelo fluxo de autenticação ou recuperação de senha. Guarde a chave em password manager, retire-a do ambiente assim que concluir e nunca a copie para chats/HTML/`VITE_*`. O script não aceita chaves publishable. A promoção de outros membros é deliberadamente ausente do dashboard.
+O script administrativo `npm run admin:invite -- --email ...` continua disponível para provisionamento operacional pelo próprio proprietário em uma máquina confiável, com credencial secreta efêmera fora do browser/Git. A promoção de outros membros continua deliberadamente ausente do dashboard.
 
 ## Gateway Edge e integração RTC/DANFSe/IA
 
