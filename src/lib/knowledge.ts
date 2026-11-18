@@ -17,7 +17,26 @@ const questions=[
 ];
 export const articles:Article[]=questions.map(([category,question,answer,source,keywords],i)=>({id:`guia-${i+1}`,category,question,answer,source,keywords}));
 export const normalize=(s:string)=>s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/nfs[\s-]*e/g,'nfse');
-const ignore=new Set('que uma como para sobre entre meus meu fazer qual quais dos das nos por sao sao o a de e os as um na no com ou tem esta voce eu um minha posso usar'.split(' '));
-const words=(s:string)=>[...new Set(normalize(s).split(/[^a-z0-9]+/).filter(w=>w&&!ignore.has(w)))];
-export function rank(query:string,items:Article[]){const terms=words(query);return items.map(a=>{const title=words(a.question),tags=words(a.keywords);return {a,s:terms.reduce((v,t)=>v+(title.includes(t)?4:tags.includes(t)?3:0),0)}}).filter(x=>x.s>0).sort((a,b)=>b.s-a.s).map(x=>x.a)}
+// Require all typed words, but not an exact phrase or a particular word order.
+export function matchesSearch(query: string, text: string) {
+  const haystack = normalize(text);
+  return normalize(query).trim().split(/\s+/).every(word => haystack.includes(word));
+}
+const ignore = new Set('que uma como para sobre entre meus meu fazer qual quais dos das nos por sao o a de e os as um na no com ou tem esta voce eu minha posso usar do da ao em se nao minha quero preciso sobre este esse isso melhor'.split(' '));
+function words(s: string) {
+  // Keep the DAS tax document distinct from the Portuguese preposition “das”.
+  const input = /^das$/i.test(s.trim()) ? 'pgdas' : s.replace(/\bDAS\b/g,'pgdas').replace(/\bo das\b/gi,'pgdas');
+  return [...new Set(normalize(input).split(/[^a-z0-9]+/).filter(w => w && !ignore.has(w)))];
+}
+export function rank(query: string, items: Article[]) {
+  const terms = words(query);
+  const docs = items.map(a => ({a, title:words(a.question), tags:words(a.keywords), body:words(a.answer)}));
+  const scored = docs.map(doc => ({doc, score:0}));
+  for (const term of terms) {
+    const weights = docs.map(d => d.title.includes(term) ? 5 : d.tags.includes(term) ? 4 : d.body.includes(term) ? 1 : 0);
+    const rarity = Math.log1p(docs.length / (1 + weights.filter(Boolean).length));
+    weights.forEach((weight,i) => {scored[i].score += weight * rarity});
+  }
+  return scored.filter(x => x.score > 0).sort((a,b) => b.score-a.score).map(x => x.doc.a);
+}
 export const safeUrl=(value:string)=>{try{const u=new URL(value);return u.protocol==='https:'?u.href:undefined}catch{return undefined}};

@@ -12,3 +12,6 @@ test-results/
 
 __pycache__/
 *.pyc
+
+# Pesos externos usados somente no teste opcional da IA
+*.gguf

@@ -1,6 +1,15 @@
 // Only explicitly reviewed messages may reach the interface. Backend errors,
 // third-party responses and arbitrary exception messages may contain internals.
-const safeMessages=new Set([
+export const integrationMessages = {
+ session:'Sua sessão expirou. Entre novamente para consultar o serviço.',
+ access:'Sua conta não tem acesso a esta integração.',
+ quota:'Consulta bloqueada. Verifique a situação da conta e a cota diária antes de tentar novamente.',
+ input:'A operação foi rejeitada. Confira o documento e os campos informados.',
+ timeout:'A consulta fiscal demorou mais que o esperado. Tente novamente.',
+ invalid:'O motor não retornou uma operação JSON válida.',
+ unavailable:'Serviço fiscal indisponível. Confira a conexão e a configuração do motor com o administrador.',
+} as const;
+const safeMessages=new Set<string>([...Object.values(integrationMessages),
  'Conclua a verificação de segurança antes de enviar.',
  'Não foi possível verificar ou registrar a solicitação. Refaça a verificação e tente novamente.',
  'Convite ausente. Abra o link recebido do administrador.',
