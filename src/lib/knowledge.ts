@@ -1,6 +1,20 @@
 import {portal,type Article} from './types';
+import {lc214} from './legal';
+
+// LC 214/2025, art. 1º, I and II. Use the same definitions in the library
+// and in the assistant, including while account-specific FAQs are unavailable.
+const ibs = 'IBS significa Imposto sobre Bens e Serviços, de competência compartilhada entre os estados, o Distrito Federal e os municípios.';
+const cbs = 'CBS significa Contribuição Social sobre Bens e Serviços, de competência da União.';
+function glossary(key:string, question:string, answer:string):Article {
+  return {id:`glossario-${key}`, category:'Reforma tributária', question, answer, source:lc214, keywords:key};
+}
+export const glossaryGuides = {
+  ibs:glossary('ibs','O que é o IBS?',`${ibs} É um tributo sobre o consumo (LC 214/2025, art. 1º, I).`),
+  cbs:glossary('cbs','O que é a CBS?',`${cbs} É um tributo sobre o consumo (LC 214/2025, art. 1º, II).`),
+  both:glossary('ibs-cbs','O que são IBS e CBS?',`${ibs} ${cbs} Ambos são tributos sobre o consumo, instituídos pelo art. 1º da LC 214/2025.`),
+};
 const questions=[
- ['Reforma tributária','Qual é a diferença entre IBS e CBS?','A CBS é a contribuição federal sobre bens e serviços. O IBS é o imposto de competência compartilhada entre estados, municípios e Distrito Federal. No e-Leão, os dois valores aparecem separados: uma simulação não representa, por si só, um saldo a recolher.','https://www.gov.br/receitafederal/pt-br/assuntos/noticias/2025/dezembro/comunicado-conjunto','diferença tributos reforma significado cbs ibs imposto consumo'],
+ ['Reforma tributária','Qual é a diferença entre IBS e CBS?',glossaryGuides.both.answer,lc214,'diferença tributos reforma significado cbs ibs imposto consumo'],
  ['Calculadora','Como fazer minha primeira simulação?','Abra a Calculadora RTC, selecione o regime e informe a base tributável já ajustada. Confira as alíquotas do seu cenário antes de calcular. Revise a memória e use Salvar simulação para incluí-la no histórico. A simulação salva não substitui a apuração oficial.','https://www.gov.br/receitafederal/pt-br/assuntos/noticias/2025/dezembro/comunicado-conjunto','simular calcular calculadora primeira salvar cálculo'],
  ['Notas de serviço','Como emitir uma NFS-e?','Em Notas de serviço, prepare e salve um rascunho. Confira o tomador, a competência, o serviço e o valor. Conclua a emissão no ambiente autorizado. Para ME e EPP optantes pelo Simples, a Receita informa uso do Emissor Nacional a partir de 1º de novembro de 2026; confira as regras aplicáveis ao seu caso. Só a autorização no emissor gera a nota.',portal,'nota emitir emissão nfse nfs-e prefeitura certificado rascunho serviço'],
  ['Simples Nacional','O cálculo do Simples Nacional substitui o DAS?','Não. O motor RTC do Simples trata IBS e CBS por operação, com CRT, atividade, classificação e alíquotas efetivas. Não faz a apuração mensal do PGDAS-D. A estimativa rápida usa os percentuais efetivos que você informa; não escolhe anexo nem calcula fator R.','https://www.gov.br/receitafederal/pt-br/assuntos/noticias/2026/agosto/simples-nacional-nfs-e-nacional-sera-obrigatoria-para-me-e-epp-a-partir-de-1o-de-novembro-de-2026','simples nacional das pgdas anexo fator r'],
@@ -17,26 +31,47 @@ const questions=[
 ];
 export const articles:Article[]=questions.map(([category,question,answer,source,keywords],i)=>({id:`guia-${i+1}`,category,question,answer,source,keywords}));
 export const normalize=(s:string)=>s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/nfs[\s-]*e/g,'nfse');
+export const normalizeTax = (s:string) => normalize(s).replace(/\s+/g,' ')
+  .replace(/\b([ic])\.\s*b\.\s*s\b\.?/g,'$1bs')
+  .replace(/\bimposto sobre bens e servicos\b/g,'ibs')
+  .replace(/\bcontribuicao (?:social )?sobre bens e servicos\b/g,'cbs')
+  .replace(/\b(?:aliquotas?|percentua(?:l|is)|p[eo]rcentag(?:em|ens)|por cento)\b|%/g,' aliquota ').replace(/\s+/g,' ').trim();
 // Require all typed words, but not an exact phrase or a particular word order.
 export function matchesSearch(query: string, text: string) {
   const haystack = normalize(text);
   return normalize(query).trim().split(/\s+/).every(word => haystack.includes(word));
 }
 const ignore = new Set('que uma como para sobre entre meus meu fazer qual quais dos das nos por sao o a de e os as um na no com ou tem esta voce eu minha posso usar do da ao em se nao minha quero preciso sobre este esse isso melhor'.split(' '));
-function words(s: string) {
+export function searchTerms(s: string) {
   // Keep the DAS tax document distinct from the Portuguese preposition “das”.
   const input = /^das$/i.test(s.trim()) ? 'pgdas' : s.replace(/\bDAS\b/g,'pgdas').replace(/\bo das\b/gi,'pgdas');
-  return [...new Set(normalize(input).split(/[^a-z0-9]+/).filter(w => w && !ignore.has(w)))];
+  return [...new Set(normalizeTax(input).split(/[^a-z0-9]+/).filter(w => w && !ignore.has(w)))];
 }
+const isConsumptionTax = (term:string) => term==='ibs' || term==='cbs';
+export const isRateTerm = (term:string) => term==='aliquota' || term==='taxa' || term==='taxas';
+const isYear = (term:string) => /^(?:19|20)\d{2}$/.test(term);
+const framing = new Set('me quem onde quando quanto quantos ajuda explique explicar significa significam significado definicao diferenca'.split(' '));
 export function rank(query: string, items: Article[]) {
-  const terms = words(query);
-  const docs = items.map(a => ({a, title:words(a.question), tags:words(a.keywords), body:words(a.answer)}));
-  const scored = docs.map(doc => ({doc, score:0}));
+  const terms = searchTerms(query);
+  const docs = items.map(a => ({a, title:searchTerms(a.question), tags:searchTerms(a.keywords), body:searchTerms(a.answer)}));
+  const weight = (doc:typeof docs[number], term:string) => doc.title.includes(term) ? 5 : doc.tags.includes(term) ? 4 : doc.body.includes(term) ? 1 : 0;
+  const scores = docs.map(() => 0);
   for (const term of terms) {
-    const weights = docs.map(d => d.title.includes(term) ? 5 : d.tags.includes(term) ? 4 : d.body.includes(term) ? 1 : 0);
+    const weights = docs.map(doc => weight(doc,term));
     const rarity = Math.log1p(docs.length / (1 + weights.filter(Boolean).length));
-    weights.forEach((weight,i) => {scored[i].score += weight * rarity});
+    weights.forEach((w,i) => {scores[i] += w * rarity});
   }
-  return scored.filter(x => x.score > 0).sort((a,b) => b.score-a.score).map(x => x.doc.a);
+  // For a named tax, a document must cover the requested aspect, not just
+  // repeat the same acronym. A year qualifies a rate request, not a definition.
+  const subjects = terms.filter(isConsumptionTax);
+  const rates = terms.filter(isRateTerm), years = terms.filter(isYear);
+  const aspects = terms.filter(t => !isConsumptionTax(t) && !isYear(t) && !isRateTerm(t) && !framing.has(t));
+  const qualified = subjects.length > 0 && subjects.length < terms.length;
+  return docs.map((doc,i) => ({doc, score:scores[i]})).filter(({doc,score}) => {
+    if (!score || !qualified) return score > 0;
+    const has = (t:string) => weight(doc,t) > 0;
+    return subjects.every(has) && (aspects.length ? aspects : rates).some(has)
+      && (!rates.length || (rates.some(has) && years.every(has)));
+  }).sort((a,b) => b.score-a.score).map(({doc}) => doc.a);
 }
 export const safeUrl=(value:string)=>{try{const u=new URL(value);return u.protocol==='https:'?u.href:undefined}catch{return undefined}};

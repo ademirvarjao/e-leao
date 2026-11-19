@@ -1,3 +1,6 @@
+import {validTerms} from '../_shared/research.ts';
+import {research} from './research.ts';
+
 // Authenticated gateway. Origins, routes and tokens for the fiscal services are server-owned.
 function cors(request: Request): Record<string,string> {
   const origin=request.headers.get('origin');
@@ -66,8 +69,8 @@ async function authenticate(request:Request) {
     const user=await res.json();
     if (!UUID.test(user?.id||'') || !user.email_confirmed_at) throw new Problem(403,'Confirme o e-mail da conta antes de continuar.');
   } catch(e) {throw e instanceof Problem?e:gatewayIssue()}
-  return async (charge:boolean)=>{
-    const rpc=charge?'eleao_take_quota':'eleao_is_active';
+  return async (charge:boolean|'research')=>{
+    const rpc=charge==='research'?'eleao_take_research_quota':charge?'eleao_take_quota':'eleao_is_active';
     try {
       const res=await fetch(`${base}/rest/v1/rpc/${rpc}`,{method:'POST',headers:{...headers,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(7000)});
       if (!res.ok) throw gatewayIssue();
@@ -104,6 +107,12 @@ async function handle(request:Request) {
   catch(e) {throw new Problem(400,e instanceof TooLarge?'O corpo da solicitação excede o limite permitido.':'O corpo precisa ser JSON válido.')}
   if (!isObject(input) || !isObject(input.payload)) throw new Problem(400,'Formato de solicitação inválido.');
   const {action,payload}=input, check=action==='check-service', service=check?payload.service:action;
+  if (action==='official-search') {
+    if(Object.keys(input).length!==2 || Object.keys(payload).length!==1 || !validTerms(payload.terms)) throw new Problem(400,'Informe apenas termos fiscais públicos.');
+    await access('research');
+    try {return reply(request,await research(payload.terms,request.signal,bytes))}
+    catch {throw new Problem(503,'As fontes oficiais não responderam à pesquisa.','SEARCH_UNAVAILABLE')}
+  }
   if (action==='reference-version') {
     if (Object.keys(payload).length) throw new Problem(400,'A consulta de versão não recebe campos da operação.');
     await access(true);return publishedVersion(request);

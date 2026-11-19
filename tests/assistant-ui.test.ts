@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import {JSDOM} from 'jsdom';
 import React from 'react';
 import {articles} from '../src/lib/knowledge';
+import type {SearchOfficial} from '../src/lib/webResearch';
+import type {Research} from '../supabase/functions/_shared/research';
+import {lc214} from '../src/lib/legal';
 import {transitionGuide} from '../src/lib/rateReferences';
 import {answerIdleMs,answerLimitMs,type LocalModel,type ModelLoader,type ModelProgress} from '../src/lib/assistant';
 
@@ -16,7 +19,7 @@ test('assistente fiscal: início automático e respostas visíveis sem cancelar'
   const {render,screen,fireEvent,cleanup,waitFor,act}=await import('@testing-library/react');
   const {default:Assistant}=await import('../src/pages/Assistant');const {Ctx}=await import('../src/lib/workspace');const {db}=await import('../src/lib/client');
   const space={knowledge:articles,feedback:async()=>{},notify:()=>{}} as React.ContextType<typeof Ctx>;
-  const open=(loadModel:ModelLoader)=>render(React.createElement(React.StrictMode,null,React.createElement(Ctx.Provider,{value:space},React.createElement(Assistant,{loadModel}))));
+  const open=(loadModel:ModelLoader,search?:SearchOfficial)=>render(React.createElement(React.StrictMode,null,React.createElement(Ctx.Provider,{value:search?{...space!,profile:{id:'member',display_name:'Teste',created_at:'',role:'member',active:true,approval_status:'approved'}}:space},React.createElement(Assistant,{loadModel,search}))));
   const ask=(question:string)=>{fireEvent.change(screen.getByLabelText('Sua pergunta'),{target:{value:question}});fireEvent.click(screen.getByLabelText('Enviar pergunta'))};
   const replies=()=>screen.getByRole('log').querySelectorAll('.bubble.agent');
   const ready=()=>waitFor(()=>assert.ok(document.querySelector('.chat[data-mode="ready"]')));
@@ -24,7 +27,7 @@ test('assistente fiscal: início automático e respostas visíveis sem cancelar'
   t.afterEach(()=>{cleanup();dom.window.localStorage.clear()});
   t.after(async()=>{await db.auth.dispose();await db.realtime.disconnect();dom.window.close()});
 
-  await t.test('abre uma vez, inclusive em StrictMode; a pergunta da imagem recebe o guia imediatamente',async()=>{
+  await t.test('abre uma vez, inclusive em StrictMode; a pergunta das alíquotas recebe o guia imediatamente',async()=>{
     const load=deferred<LocalModel>();let loads=0,calls=0,closed=0;
     const page=open(async(_s,progress)=>{loads++;progress(37);return load.promise});await waitFor(()=>assert.equal(loads,1));
     const bar=screen.getByRole('progressbar',{name:'Carregamento do assistente'});assert.equal(bar.getAttribute('value'),'37');assert.equal(bar.parentElement?.textContent,'37%');assert.doesNotMatch(document.body.textContent!,/gratuit|Qwen|API|cobrança/i);
@@ -36,9 +39,45 @@ test('assistente fiscal: início automático e respostas visíveis sem cancelar'
     assert.equal(screen.queryByRole('button',{name:/Cancelar/}),null);assert.equal(replies().length,2);
     page.unmount();assert.equal(closed,1);
   });
+  await t.test('a pergunta digitada na imagem recebe a definição, não percentuais; a IA pronta não a reescreve',async()=>{
+    const load=deferred<LocalModel>();let calls=0;open(async()=>load.promise);
+    ask('o que é ibs e cbs?');const first=replies()[0];
+    assert.match(first.querySelector('p')!.textContent!,/Imposto sobre Bens e Serviços.*Contribuição Social sobre Bens e Serviços/);
+    assert.doesNotMatch(first.textContent!,/alíquota|%|2026|Aguardando a IA/i);assert.equal(first.querySelector('a')!.href,lc214);
+    assert.equal(first.querySelector('button'),null); // Published legal reference, not a database article to vote on.
+    await act(async()=>load.resolve({close:()=>{},complete:async()=>{calls++;return transitionGuide.answer}}));await ready();
+    ask(transitionGuide.question);assert.ok(screen.getByText(transitionGuide.answer));
+    ask('O que significam as siglas CBS e IBS?');assert.equal(replies()[2].querySelector('p')!.textContent,first.querySelector('p')!.textContent);
+    assert.equal(calls,0);assert.equal(screen.queryByRole('button',{name:/Cancelar/}),null);
+  });
+  const onlineResult:Research={checkedAt:'2026-11-18T12:00:00Z',unavailable:['dou'],hits:[{provider:'receita',title:'Orientação sobre créditos de CBS',excerpt:'O crédito da CBS não é automático. Consulte o enquadramento.',url:'https://www.gov.br/receitafederal/pt-br/assuntos/noticias/teste'}]};
+  await t.test('pesquisa automática informa o envio, exibe título, órgão, trecho e link; o modelo lê a pesquisa antes de responder',async()=>{
+    const lookup=deferred<Research>();const queries:string[][]=[];let calls=0;
+    open(async()=>({close:()=>{},complete:async p=>{calls++;assert.ok(p[1].content.includes(onlineResult.hits[0].excerpt));return '1'}}),async terms=>{queries.push(terms);return lookup.promise});
+    await ready();const q='E o crédito da CBS para Cliente Particular 123.456.789-01?';
+    fireEvent.change(screen.getByLabelText('Sua pergunta'),{target:{value:q}});assert.ok(screen.getByText('Termos a enviar: CBS · crédito'));assert.equal(queries.length,0);
+    fireEvent.click(screen.getByLabelText('Enviar pergunta'));assert.deepEqual(queries,[['CBS','crédito']]);assert.ok(screen.getByText('Pesquisando em fontes oficiais…'));assert.equal(calls,0);
+    await act(async()=>lookup.resolve(onlineResult));await screen.findByText('e-Leão · IA local com fonte');assert.equal(calls,1);
+    assert.equal(replies()[0].querySelector('p')!.textContent,onlineResult.hits[0].excerpt);assert.match(replies()[0].textContent!,/Fonte da resposta · Receita Federal/);
+    assert.equal(screen.getByRole('link',{name:/Orientação sobre créditos/}).getAttribute('href'),onlineResult.hits[0].url);assert.ok(screen.getByText(/Consulta parcial/));
+  });
+  await t.test('guia exato não é sobrescrito pela busca, erros não bloqueiam a resposta e desativar impede o envio',async()=>{
+    let count=0;const search:SearchOfficial=async()=>{if(++count===1)return onlineResult;throw Error('detalhe privado')};
+    open(async()=>plain,search);await ready();ask('o que é ibs e cbs?');await screen.findByText(/Resultado relacionado · Receita Federal/);
+    assert.match(replies()[0].querySelector('p')!.textContent!,/Imposto sobre Bens e Serviços/);assert.ok(screen.getByRole('link',{name:'O que são IBS e CBS?'}));
+    ask('qual o percentual de IBS em 2026?');await screen.findByText(/Pesquisa indisponível/);assert.ok(screen.getByText(transitionGuide.answer));assert.equal(screen.queryByText('detalhe privado'),null);
+    fireEvent.click(screen.getByRole('checkbox',{name:/Pesquisar na internet/}));ask('Qual o significado de CBS?');assert.equal(count,2);
+  });
+  await t.test('sem o modelo pronto a pesquisa já mostra a fonte; uma busca antiga não muda a resposta mais recente',async()=>{
+    const load=deferred<LocalModel>(),old=deferred<Research>();let signal!:AbortSignal;let n=0;
+    open(async()=>load.promise,async(_t,s)=>{if(!n++){signal=s;return old.promise}return onlineResult});
+    ask('O que é IBS?');ask('Há crédito presumido de CBS?');await screen.findByText('e-Leão · Trecho da pesquisa');assert.ok(signal.aborted);
+    await act(async()=>old.resolve(onlineResult));assert.equal(replies()[0].querySelector('.research-hit'),null);assert.equal(replies()[1].querySelector('.research-hit a')?.getAttribute('href'),onlineResult.hits[0].url);
+    fireEvent.click(screen.getByLabelText('Opções da conversa'));fireEvent.click(screen.getByRole('button',{name:'Usar só os guias'}));ask('Qual é a CBS?');assert.equal(n,2);
+  });
   await t.test('durante a carga já responde; explica a última pergunta livre usando o mesmo balão e valida o texto final',async()=>{
     const load=deferred<LocalModel>(),result=deferred<string>();let calls=0,pulse!:ModelProgress;
-    open(async()=>load.promise);ask('Preciso de ajuda com IBS');ask('Para que serve o DANFSe?');
+    open(async()=>load.promise);ask('Como preparo um rascunho?');assert.ok(screen.getByText(/Aguardando a IA para explicar/));ask('Para que serve o DANFSe?');
     const guide=articles.find(a=>a.id==='guia-5')!;assert.ok(screen.getByText(guide.answer));assert.equal(replies().length,2);
     await act(async()=>load.resolve({close:()=>{},complete:async(prompt,_s,_max,onProgress)=>{
       calls++;if(calls>1)return 'Aplica-se uma alíquota de 99%.';
@@ -101,10 +140,10 @@ test('assistente fiscal: início automático e respostas visíveis sem cancelar'
     await act(async()=>late.resolve('Texto antigo.'));assert.equal(screen.queryByText('Texto antigo.'),null);assert.equal(loads,2);
   });
   await t.test('rota sem correspondência mostra a fonte assim que identificada e não deixa a conversa pendente após erro',async()=>{
-    const match=deferred<string>(),explanation=deferred<string>();let calls=0;
-    open(async()=>({close:()=>{},complete:async(_p,_s,max)=>{calls++;return max===8?match.promise:explanation.promise}}));
+    const match=deferred<string>(),explanation=deferred<string>();let calls=0,choice='';
+    open(async()=>({close:()=>{},complete:async(p,_s,max)=>{calls++;if(max!==8)return explanation.promise;choice=/^(\d+)\. O que é o DANFSe\?/m.exec(p[0].content)![1];return match.promise}}));
     await ready();ask('xyzxyz');assert.ok(screen.getByText('A IA está procurando uma fonte revisada…'));
-    await act(async()=>match.resolve('6'));assert.ok(screen.getByRole('link',{name:'O que é o DANFSe?'}));assert.equal(calls,2);
+    await act(async()=>match.resolve(choice));assert.ok(screen.getByRole('link',{name:'O que é o DANFSe?'}));assert.equal(calls,2);
     await act(async()=>explanation.reject(Error('private failure')));assert.equal(screen.queryByText(/private failure/),null);
     assert.ok(screen.getByText(/A geração local falhou/));assert.ok(screen.getByText('e-Leão · Guia revisado'));assert.equal(replies().length,1);
   });
