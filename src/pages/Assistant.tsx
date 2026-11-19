@@ -1,5 +1,5 @@
 import {Fragment,useCallback,useEffect,useRef,useState} from 'react';
-import {BookOpen,ExternalLink,LoaderCircle,MessageSquareText,Send,ShieldCheck,Sparkles,ThumbsDown,ThumbsUp,Trash2} from 'lucide-react';
+import {BookOpen,ExternalLink,LoaderCircle,MessageSquareText,Send,ShieldCheck,Settings2,ThumbsDown,ThumbsUp,Trash2} from 'lucide-react';
 import {Notice,PageHeading,Tile} from '../components/ui';
 import {useSpace} from '../lib/workspace';
 import {friendly} from '../lib/client';
@@ -8,7 +8,6 @@ import {transitionGuide} from '../lib/rateReferences';
 import {answerIdleMs,answerLimitMs,checkedAnswer,guideContext,inferGuide,makePrompt,noGuide,sameQuestion,type ModelLoader,type ModelProgress} from '../lib/assistant';
 import {useDeviceModel} from '../lib/useDeviceModel';
 import type {Article} from '../lib/types';
-import {modelBytes,modelPage} from '../lib/modelSpec';
 
 type Reply = {text:string; sources:Article[]; mode:'Guia revisado'|'IA local'|'Consulta aos guias'};
 type Turn = {id:number; question:string; reply:Reply; vote?:boolean};
@@ -91,18 +90,13 @@ export default function Assistant({loadModel}:{loadModel?:ModelLoader}) {
   }
   const starters=[transitionGuide,...knowledge.filter(a=>a.id==='guia-1'||a.id==='guia-3')];
   return <><PageHeading kicker="INTELIGÊNCIA FISCAL" title="Assistente fiscal" desc="Faça uma pergunta e confira os guias que fundamentam a resposta."/>
-    <section className="panel model-card" aria-label="Modelo de inteligência artificial">
-      <div className="block-title"><Tile icon={Sparkles} color="lavender"/><div><h2>IA gratuita no dispositivo</h2><p>Qwen3-0.6B · Sem chave de API e sem cobrança por pergunta.</p></div></div>
-      <p className="model-explainer">Por padrão, a IA carrega automaticamente ao abrir o assistente. O primeiro download é de cerca de {Math.round(modelBytes/1e6)} MB; nas próximas visitas, o navegador reutiliza os pesos se estiverem em cache. As perguntas e os guias não saem do dispositivo para gerar respostas.</p>
-      <div className="actions">{state.kind==='loading'?<><span role="status">{state.percent>=100?'Inicializando o modelo…':`Preparando a IA · ${state.percent}%`}. Você já pode perguntar.</span><button className="btn" onClick={onlyGuides}>Usar só os guias</button></>:state.kind==='ready'?<>
-        <span className="tag green">{answering?'IA em uso':'Modelo pronto'}</span>{answering?<button className="btn" onClick={()=>interrupt('Explicação interrompida. A consulta aos guias continua na conversa.')}>Cancelar explicação</button>:<button className="btn" onClick={onlyGuides}>Usar só os guias</button>}
-      </>:<><span className="tag">{state.kind==='guides'?'Modo só guias':'IA indisponível'}</span><button className="btn" disabled={removing} onClick={()=>{setNotice('');retry()}}>{state.kind==='guides'?'Voltar a usar a IA':'Tentar carregar a IA novamente'}</button>{state.kind==='error'&&<button className="btn" onClick={onlyGuides}>Usar só os guias</button>}</>}</div>
-      {state.kind==='loading'&&<progress aria-label="Carregamento do modelo" max={100} value={state.percent}/>}
-      <details className="model-storage"><summary>Modelo e armazenamento</summary><p>Pesos abertos Q4_K_M, quantizados por Unsloth. A velocidade depende da memória e do processador. <a href={modelPage} target="_blank" rel="noreferrer">Consultar versão do modelo</a></p><button type="button" className="textbtn" disabled={answering||state.kind==='loading'||removing} onClick={removeModel}>{removing?'Removendo…':'Apagar apenas o modelo em cache'}</button></details>
-      {(state.kind==='error'||notice)&&<div role="status"><Notice>{state.kind==='error'?state.message:notice}</Notice></div>}
-    </section>
-    <section className="panel chat"><header className="panel-head"><div className="block-title"><Tile icon={MessageSquareText} color="blue"/><div><h2>Conversa fiscal</h2><p>{state.kind==='ready'?'IA local · Perguntas dos guias têm resposta direta':'Consulta imediata aos guias revisados'}</p></div></div>
-      {!!turns.length&&<button className="iconbtn" disabled={answering} aria-label="Limpar conversa" onClick={()=>{setTurns([]);setRequest(null);setInput('');setNotice('')}}><Trash2 size={17}/></button>}</header>
+    {state.kind==='loading'&&<div className="model-progress"><progress aria-label="Carregamento do assistente" max={100} value={state.percent}/><span aria-hidden="true">{state.percent}%</span></div>}
+    {(state.kind==='error'||notice||state.kind==='guides')&&<div className="chat-notice" role="status"><Notice>{state.kind==='error'?state.message:notice||'Modo só guias.'} {(state.kind==='error'||state.kind==='guides')&&<button className="textbtn" disabled={removing} onClick={()=>{setNotice('');retry()}}>{state.kind==='guides'?'Voltar a usar a IA':'Tentar carregar a IA novamente'}</button>}</Notice></div>}
+    <section className="panel chat" data-mode={state.kind}><header className="panel-head"><div className="block-title"><Tile icon={MessageSquareText} color="blue"/><div><h2>Conversa fiscal</h2><p>Respostas com fontes revisadas</p></div></div>
+      <div className="actions">{!!turns.length&&<button className="iconbtn" disabled={answering} aria-label="Limpar conversa" onClick={()=>{setTurns([]);setRequest(null);setInput('');setNotice('')}}><Trash2 size={17}/></button>}
+      <details className="chat-settings"><summary className="iconbtn" aria-label="Opções da conversa" title="Opções da conversa"><Settings2 size={17}/></summary><div className="panel stack"><small>Armazenamento neste dispositivo</small>
+        {state.kind!=='guides'&&<button className="btn" disabled={answering} onClick={onlyGuides}>Usar só os guias</button>}
+        <button type="button" className="textbtn" disabled={answering||state.kind==='loading'||removing} onClick={removeModel}>{removing?'Removendo…':'Apagar apenas o modelo em cache'}</button></div></details></div></header>
       <div ref={log} className="chat-log" role="log" aria-label="Mensagens" aria-live="polite" aria-relevant="additions text">
         {!turns.length&&<div className="chat-welcome"><span className="assistant-orb"><BookOpen size={28}/></span><h2>O que você quer conferir?</h2><p>Indique o tributo ou o documento e, se fizer diferença, o ano da operação.</p><div className="suggestions">{starters.map(a=><button key={a.id} onClick={()=>ask(a.question)}>{a.question}</button>)}</div></div>}
         {turns.map(({id,question,reply,vote:rating})=>{
@@ -112,7 +106,7 @@ export default function Assistant({loadModel}:{loadModel?:ModelLoader}) {
             {reply.sources.length>0&&<span className="source-caption">{reply.mode==='IA local'?'Fontes consultadas':'Fonte do guia'}</span>}
             {reply.sources.map((a,i)=><div className="bubble-foot" key={a.id}><a href={safeUrl(a.source)} target="_blank" rel="noreferrer"><BookOpen size={14}/>{a.question}<ExternalLink size={12}/></a>
               {i===0&&a.id!==transitionGuide.id&&<div><button aria-label="Guia útil" aria-pressed={rating===true} className="iconbtn" onClick={()=>vote(id,a.id,true)}><ThumbsUp size={14}/></button><button aria-label="Guia pouco útil" aria-pressed={rating===false} className="iconbtn" onClick={()=>vote(id,a.id,false)}><ThumbsDown size={14}/></button></div>}</div>)}
-            {pending&&<span className="reply-progress" role="status"><LoaderCircle size={13} className="spin"/>{state.kind==='loading'?'Aguardando a IA para explicar a pergunta mais recente…':!reply.sources.length?'A IA está procurando uma fonte revisada…':stage==='writing'?'A IA está redigindo a explicação…':'A IA está lendo as fontes…'}</span>}
+            {pending&&<span className="reply-progress" role="status"><LoaderCircle size={13} className="spin"/>{state.kind==='loading'?'Aguardando a IA para explicar a pergunta mais recente…':!reply.sources.length?'A IA está procurando uma fonte revisada…':stage==='writing'?'A IA está redigindo a explicação…':'A IA está lendo as fontes…'}{answering&&<button className="textbtn" onClick={()=>interrupt('Explicação interrompida. A consulta aos guias continua na conversa.')}>Cancelar explicação</button>}</span>}
           </div></Fragment>;
         })}
       </div><div className="composer"><form onSubmit={e=>{e.preventDefault();ask(input)}}><input aria-label="Sua pergunta" placeholder="Pergunte sobre IBS, CBS ou NFS-e…" required maxLength={1000} value={input} onChange={e=>setInput(e.target.value)}/><button className="btn primary" aria-label="Enviar pergunta" disabled={!input.trim()}><Send size={17}/></button></form></div>

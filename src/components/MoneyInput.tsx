@@ -1,10 +1,10 @@
 import {useState, type ClipboardEvent} from 'react';
 import {NumericFormat} from 'react-number-format';
 
-type Props = {value: string; onValueChange: (value: string) => void; name?: string};
+type Props = {value: string; onValueChange: (value: string) => void; name?: string; required?: boolean};
 
 // Display reais in pt-BR, but give the fiscal parser an exact, ungrouped decimal string.
-export function MoneyInput({value, onValueChange, name}: Props) {
+export function MoneyInput({value, onValueChange, name, required=true}: Props) {
   const [pasteError, setPasteError] = useState(false);
 
   function paste(event: ClipboardEvent<HTMLInputElement>) {
@@ -27,7 +27,7 @@ export function MoneyInput({value, onValueChange, name}: Props) {
   }
 
   return <>
-    <NumericFormat name={name} required inputMode="decimal" placeholder="0,00"
+    <NumericFormat name={name} required={required} inputMode="decimal" placeholder="0,00"
       thousandSeparator="." decimalSeparator="," decimalScale={2} fixedDecimalScale allowNegative={false}
       value={value} valueIsNumericString onValueChange={amount => onValueChange(amount.value)}
       onPaste={paste} onChange={() => setPasteError(false)}/>

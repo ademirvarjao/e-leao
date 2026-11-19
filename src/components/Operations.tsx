@@ -1,4 +1,6 @@
-import {hasSimulationMemory, SimulationMemory} from './SimulationMemory';
+import {ReportExports} from './ReportExports';
+import {hasSimulationMemory,simulationReport} from '../lib/reports';
+import {SimulationMemory} from './SimulationMemory';
 import {LawLink} from './LawLink';
 import {useState} from 'react';import {ArrowUpRight,Calculator,ChevronRight,Download,FileText,Trash2,ExternalLink} from 'lucide-react';
 import type {Operation} from '../lib/types';import {portal} from '../lib/types';import {download,money,readableDate} from '../lib/fiscal';import {useSpace} from '../lib/workspace';import {friendly} from '../lib/client';import {Empty,Modal,Notice,Tile} from './ui';import {navigate} from './nav';
@@ -15,7 +17,7 @@ export function OperationDetail({o,onClose}:{o:Operation;onClose:()=>void}) {
   return <Modal title={o.title} eyebrow={o.kind==='simulation'?'MEMÓRIA DA SIMULAÇÃO':'RASCUNHO DE NFS-E'} onClose={onClose}>
     {hasSimulationMemory(o) ? <SimulationMemory o={o}/> : <OriginalDetail o={o}/>}
     {o.kind==='invoice'?<><Notice>Este rascunho não tem valor fiscal. A autorização ocorre no emissor competente. <LawLink article="arts. 60 e 62"/>.</Notice><a className="btn primary full" href={portal} target="_blank" rel="noreferrer">Abrir emissor nacional <ExternalLink size={16}/></a></>:<Notice>Estimativa de cenário, não guia de recolhimento.</Notice>}
-    {err&&<Notice tone="error">{err}</Notice>}{confirm?<div className="confirm-box"><b>Excluir esta operação?</b><p>Esta ação não pode ser desfeita.</p><div className="actions"><button className="btn danger" onClick={del} disabled={busy}>Confirmar exclusão</button><button className="btn" onClick={()=>setConfirm(false)}>Manter</button></div></div>:<div className="actions split"><button className="btn" onClick={()=>download(JSON.stringify(o,null,2),'e-leao-'+o.id+'.json')}><Download size={16}/> Exportar dados</button><button className="textbtn danger-text" onClick={()=>setConfirm(true)}><Trash2 size={15}/> Excluir</button></div>}
+    {err&&<Notice tone="error">{err}</Notice>}{confirm?<div className="confirm-box"><b>Excluir esta operação?</b><p>Esta ação não pode ser desfeita.</p><div className="actions"><button className="btn danger" onClick={del} disabled={busy}>Confirmar exclusão</button><button className="btn" onClick={()=>setConfirm(false)}>Manter</button></div></div>:<div className="actions split">{o.kind==='simulation'?<ReportExports report={simulationReport(o)} original={o}/>:<button className="btn" onClick={()=>download(JSON.stringify(o,null,2),'e-leao-'+o.id+'.json')}><Download size={16}/> Exportar dados</button>}<button className="textbtn danger-text" onClick={()=>setConfirm(true)}><Trash2 size={15}/> Excluir</button></div>}
   </Modal>;
 }
 export function Recent({rows}:{rows:Operation[]}){const [selected,setSelected]=useState<Operation|null>(null);return <section className="panel recent"><header className="panel-head"><div><h2>Atividade recente</h2><p>Últimas operações do período selecionado.</p></div><button className="textbtn" onClick={()=>navigate('historico')}>Ver histórico <ArrowUpRight size={15}/></button></header><OperationsTable rows={rows.slice(0,4)} onSelect={setSelected}/>{selected&&<OperationDetail o={selected} onClose={()=>setSelected(null)}/>}</section>}

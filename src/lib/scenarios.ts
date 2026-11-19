@@ -8,7 +8,7 @@ export const catalogLabel = `Receita Federal · RTC ${catalog.version} · base V
 export const catalogSource = `https://github.com/ReceitaFederal/calculadora-rtc-regime-regular/tree/${catalog.revision}/flyway/sql`;
 export type Scenario = {
   id: string; family: 'ibsCbs' | 'is' | 'sn'; code: string; name: string; label: string;
-  documents: number[]; rtcTreatment?: string; requiresRegular?: boolean; cst?: string; nomenclature?: string; article: string; group: string; from: string; until: string | null;
+  documents: number[]; rtcTreatment?: string; requiresRegular?: boolean; nominalGroup?: boolean; cst?: string; nomenclature?: string; article: string; group: string; from: string; until: string | null;
   regime: Regime; guidance: string; quick?: QuickRule;
 };
 type QuickRule = {reduction: 0 | 30 | 60 | 100; condition: string; label?: string};
@@ -55,7 +55,7 @@ const activities: Scenario[] = catalog.sn.map(row => ({...row, family:'sn', id:`
   article:'art. 18', group:'Simples Nacional · atividades (cAtivSN)', regime:'Simples Nacional',
   guidance:`Indicação do catálogo: ${row.annex === 'Não tributável' ? row.annex : 'anexo '+row.annex}. Confira documento, CRT, cClassTrib, receita acumulada, faixa e fator R quando aplicável. A atividade isolada não define o percentual efetivo nem o DAS.`}));
 export const scenarios: Scenario[] = [...common, ...classes, ...activities];
-const documentLabels: Record<string,string> = catalog.documents;
+export const documentLabels: Record<string,string> = catalog.documents;
 export const documentOptions = (s: Scenario) => s.documents.map(code=>`${documentLabels[code]} (${code})`).join(', ');
 export const isInCatalogPeriod = (s: Scenario, date: string) => validDate(date) && date >= s.from && (!s.until || date <= s.until);
 export const scenarioCode = (s: Scenario) => s.family === 'sn' ? `cAtivSN ${s.code}` : `${s.family === 'is'?'IS':'IBS/CBS'} · CST ${s.cst} · cClassTrib ${s.code}`;

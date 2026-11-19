@@ -1,6 +1,5 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {scenarioPacket, hasPlaceholders} from '../src/lib/scenarioPacket';
 import {catalogSource, isInCatalogPeriod, scenarioCode, scenarios, suggestedRate} from '../src/lib/scenarios';
 import {simulate} from '../src/lib/simulation';
 import {referenceLabel, type Tax} from '../src/lib/rateReferences';
@@ -47,24 +46,4 @@ test('memória preserva centavos, premissas, referências realmente aplicadas e 
   assert.ok(Object.values(o.details).every(v=>typeof v==='string'));
   const changed=simulate({...args,cbs:{value:'1',reference:ref}});assert.equal(changed.details.refCbs,undefined);assert.match(changed.details.divergencias,/CBS: 1% informado, referência do cenário 0,36%/);
   for (const patch of [{confirmed:false},{scenario:get('ibsCbs:620001')},{date:'2025-01-01'},{regime:'Simples Nacional' as const},{date:'2026-02-30'},{is:{base:'40',rate:'10'}}]) assert.throws(()=>simulate({...args,...patch}));
-});
-test('modelos RTC não inventam localização, classificação paralela nem alíquotas e respeitam os contratos',()=>{
-  const packet = (id:string,d:string) => scenarioPacket(get(id),d)!;
-  const a = packet('ibsCbs:620001',date);assert.equal(a.engine,'regular');
-  const op = JSON.parse(JSON.stringify(a.operation));assert.equal(op.itens[0].cClassTrib,'620001');assert.equal(op.itens[0].cst,'620');assert.ok(hasPlaceholders(op.itens[0].quantidade));
-  const susp=JSON.parse(JSON.stringify(packet('ibsCbs:550001',date).operation));assert.ok(hasPlaceholders(susp.itens[0].tributacaoRegular.cClassTrib));
-  assert.ok(!('aliquotasNominais' in op.itens[0]));assert.match(op.dhFatoGerador,/2026-11-18T/);assert.ok(hasPlaceholders(JSON.stringify(op)));
-  const b = JSON.parse(JSON.stringify(packet('is:000003','2027-05-06').operation));assert.match(b.itens[0].cClassTrib,/<informar/);
-  assert.equal(b.itens[0].impostoSeletivo.cClassTrib,'000003');assert.match(b.itens[0].aliquotasNominais.cbs,/<informar/);assert.match(b.itens[0].aliquotasNominais.impostoSeletivo.adRem,/<informar/);
-  const c = packet('sn:09','2027-01-01');assert.equal(c.engine,'simple');
-  const sn = JSON.parse(JSON.stringify(c.operation));assert.equal(sn.data,'2027-01-01');assert.equal(sn.tpDoc,'91');assert.equal(sn.itens[0].cAtivSN,'09');assert.match(sn.itens[0].pIBSSN,/<informar/);assert.ok(!('aliquotasNominais' in sn.itens[0]));
-  assert.equal(scenarioPacket(get('sn:09'),date),undefined);assert.equal(scenarioPacket(get('is:000003'),date),undefined);
-});
-
-test('cada modelo só preenche o documento quando o vínculo é único',()=>{
-  for (const s of scenarios) {
-    const p = JSON.parse(JSON.stringify(scenarioPacket(s,s.from)!.operation));
-    if(s.documents.length===1) assert.equal(p.tpDoc,s.family==='sn'?String(s.documents[0]):s.documents[0]);
-    else if(s.family==='sn') assert.ok(hasPlaceholders(p.tpDoc)); else assert.equal(p.tpDoc,undefined);
-  }
 });

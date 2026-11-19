@@ -67,7 +67,7 @@ try{
   await login.getByRole('button',{name:'Entrar na sua conta'}).click();
   const link=page.getByRole('link',{name:'Assistente fiscal',exact:true});await link.waitFor();assert.equal(downloads,0,'A página inicial não baixa a IA');
   await link.click();
-  const ready=page.getByText('Modelo pronto',{exact:true});await ready.waitFor({timeout:120_000});
+  const ready=page.locator('.chat[data-mode="ready"]');await ready.waitFor({timeout:120_000});
   const start=Date.now();
   await page.getByRole('button',{name:transitionGuide.question,exact:true}).click();
   const direct=page.locator('.bubble.agent').filter({hasText:'e-Leão · Guia revisado'});
@@ -100,7 +100,7 @@ try{
     return sizes;
   });
   assert.ok((await cachedWeights()).includes(modelBytes));
-  await page.getByText('Modelo e armazenamento',{exact:true}).click();
+  await page.getByLabel('Opções da conversa').click();
   await page.getByRole('button',{name:'Apagar apenas o modelo em cache'}).click();
   await page.getByText(/Cache do modelo removido/).waitFor();assert.deepEqual(await cachedWeights(),[]);
   await page.reload();await page.getByRole('button',{name:'Voltar a usar a IA'}).waitFor();
@@ -111,10 +111,12 @@ try{
   const requested=page.waitForRequest(origin+'/weights');
   try {
     await page.getByRole('button',{name:'Voltar a usar a IA'}).click();await requested;
+    const progress=page.getByRole('progressbar',{name:'Carregamento do assistente'});
+    assert.match(await progress.locator('..').innerText(),/^\d+%$/);assert.doesNotMatch(await page.locator('main').innerText(),/Qwen|gratuit|cobrança/i);
     await page.getByRole('button',{name:transitionGuide.question,exact:true}).click();
     assert.equal(await answers.locator('p').innerText(),transitionGuide.answer);
   } finally {release()}
-  await page.getByText('IA indisponível',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Tentar carregar a IA novamente'}).waitFor();
   await ask('Para que serve o DANFSe?');assert.equal(await answers.count(),2);
   assert.ok(await answers.last().getByRole('link',{name:'O que é o DANFSe?'}).count());
   assert.deepEqual(unexpected,[]);assert.deepEqual(errors,[]);
