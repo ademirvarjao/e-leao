@@ -1,61 +1,99 @@
-import {useState,type FormEvent} from 'react';import {Calculator as Calc,ArrowRight,BookmarkCheck,ChevronRight,Code2,Download,Landmark,Layers3,RotateCcw,Save,SlidersHorizontal} from 'lucide-react';import {MoneyInput} from '../components/MoneyInput';import {Field,Notice,PageHeading,Tile} from '../components/ui';import {useSpace} from '../lib/workspace';import {download,estimate,money,today} from '../lib/fiscal';import {friendly,queryRTC} from '../lib/client';import type {Operation,Regime} from '../lib/types';import {rtcExamples,rtcStatus,type Engine} from '../lib/rtc';import {navigate} from '../components/nav';
-import {RateField,type RateEntry} from '../components/RateField';
-import {rateLaw,rateReference,referenceLabel} from '../lib/rateReferences';
-function RTC(){const {session,auth}=useSpace();const [engine,setEngine]=useState<Engine>('regular'),[text,setText]=useState(JSON.stringify(rtcExamples.regular,null,2)),[result,setResult]=useState<Awaited<ReturnType<typeof queryRTC>>|null>(null),[err,setErr]=useState(''),[busy,setBusy]=useState(false);async function run(e:FormEvent){e.preventDefault();setErr('');setResult(null);let payload;try{payload=JSON.parse(text)}catch{setErr('O JSON está inválido. Confira aspas, vírgulas e chaves.');return}if(!payload||typeof payload!=='object'||Array.isArray(payload)){setErr('Informe uma operação como objeto JSON.');return}if(!session){auth('login');return}setBusy(true);try{setResult(await queryRTC(engine,payload))}catch(e){setErr(friendly(e))}finally{setBusy(false)}}return <section className="panel form-panel"><div className="block-title"><Tile icon={Code2} color="blue"/><div><h2>Consultar o motor RTC</h2><p>Envie uma operação no contrato da Receita e examine a memória original.</p></div></div><Notice>Integração avançada. Requer conta e uma instância RTC configurada pelo administrador. Os exemplos são ilustrativos; não inclua dados pessoais.</Notice><form className="stack" onSubmit={run}><Field label="Serviço"><select value={engine} disabled={busy} onChange={e=>{const v=e.target.value as Engine;setEngine(v);setText(JSON.stringify(rtcExamples[v],null,2));setResult(null);setErr('')}}><option value="regular">Regime regular · IBS, CBS e IS</option><option value="simple">Simples Nacional · IBS e CBS</option><option value="base">Base unificada da NFS-e</option></select></Field><Field label="Operação (JSON)"><textarea className="code" disabled={busy} required maxLength={65000} rows={13} value={text} onChange={e=>{setText(e.target.value);setResult(null)}}/></Field>{err&&<Notice tone="error">{err}</Notice>}<button className="btn primary align-start" disabled={busy}>{busy?'Consultando…':session?'Consultar motor':'Entrar para consultar'}<ArrowRight size={16}/></button></form>{result&&<div className="stack result"><h3>Retorno do motor · HTTP {result.status}</h3><Notice>{rtcStatus(result.body,engine)}</Notice>{result.warning&&<p>O gateway sinalizou dados simulados{/^\d{1,3}$/.test(result.warning)?` (aviso ${result.warning})`:''}. Não use este retorno como apuração oficial.</p>}<pre>{JSON.stringify(result.body,null,2)}</pre><button className="btn align-start" onClick={()=>download(JSON.stringify(result,null,2),'retorno-rtc.json')}><Download size={16}/> Baixar memória</button></div>}</section>}
+import {useState, type FormEvent} from 'react';
+import {ArrowRight, BookmarkCheck, Calculator as Calc, ChevronRight, Download, Landmark, Layers3, RotateCcw, Save, SlidersHorizontal} from 'lucide-react';
+import {LawLink} from '../components/LawLink';
+import {MoneyInput} from '../components/MoneyInput';
+import {RateField} from '../components/RateField';
+import {RtcConsultation} from '../components/RtcConsultation';
+import {ScenarioPicker} from '../components/ScenarioPicker';
+import {SimulationMemory} from '../components/SimulationMemory';
+import {navigate} from '../components/nav';
+import {Field, Notice, PageHeading, Tile} from '../components/ui';
+import {friendly} from '../lib/client';
+import {download, readableDate, today, validDate} from '../lib/fiscal';
+import {svrs} from '../lib/legal';
+import {rateReference, type RateEntry} from '../lib/rateReferences';
+import {documentOptions, isInCatalogPeriod, scenarioCode, suggestedRate, treatment, type Scenario} from '../lib/scenarios';
+import {quickScope, simulate} from '../lib/simulation';
+import type {Operation, Regime} from '../lib/types';
+import {useSpace} from '../lib/workspace';
+
 export default function Calculator() {
   const {save,notify} = useSpace();
-  const [tab,setTab] = useState('quick'), [regime,setRegime] = useState<Regime>('Regime regular');
-  const [base,setBase] = useState(''), [date,setDate] = useState(today), [title,setTitle] = useState('Simulação de serviços');
+  const [tab,setTab] = useState<'quick'|'engine'>('quick'), [regime,setRegime] = useState<Regime>('Regime regular');
+  const [scenario,setScenario] = useState<Scenario>(), [confirmed,setConfirmed] = useState(false);
+  const [base,setBase] = useState(''), [date,setDate] = useState(today), [title,setTitle] = useState('Simulação personalizada');
   const [cbs,setCbs] = useState<RateEntry>({value:''}), [ibs,setIbs] = useState<RateEntry>({value:''});
   const [useIS,setUseIS] = useState(false), [isRate,setIsRate] = useState(''), [isBase,setIsBase] = useState('');
   const [result,setResult] = useState<Operation|null>(null), [err,setErr] = useState('');
   const [busy,setBusy] = useState(false), [savedId,setSavedId] = useState('');
-  const cbsRef = rateReference('CBS',regime,date), ibsRef = rateReference('IBS',regime,date);
-  const simple = regime === 'Simples Nacional';
+  const simple = regime === 'Simples Nacional', quick = !scenario || !!scenario.quick;
+  const inPeriod = scenario ? isInCatalogPeriod(scenario,date) : validDate(date);
+  const canEstimate = quick && inPeriod && (!scenario || confirmed);
+  const cbsRef = suggestedRate('CBS',regime,date,scenario,confirmed), ibsRef = suggestedRate('IBS',regime,date,scenario,confirmed);
   const clear = () => {setResult(null); setErr('')};
+  function resetRates() {setCbs({value:''}); setIbs({value:''}); setUseIS(false); setIsBase(''); setIsRate(''); clear()}
+  function pick(next?: Scenario) {
+    setScenario(next); if (next) setRegime(next.regime);
+    setConfirmed(false); resetRates();
+  }
   function changeDate(next: string) {
-    setDate(next);
-    // Drop an applied reference when its legal basis changes (even if the number is the same).
+    setDate(next); clear();
+    if (scenario) {setConfirmed(false); resetRates(); return}
     if (cbs.reference && cbs.reference !== rateReference('CBS',regime,next)) setCbs({value:''});
     if (ibs.reference && ibs.reference !== rateReference('IBS',regime,next)) setIbs({value:''});
   }
   function calc(e: FormEvent) {
     e.preventDefault(); setErr('');
-    try {
-      if (!title.trim()) throw Error('Informe um nome para o cenário.');
-      const values = estimate(base,cbs.value,ibs.value,useIS?isRate:'0',useIS?isBase:'0');
-      setResult({id:crypto.randomUUID(),kind:'simulation',title:title.trim(),regime,on_date:date,...values,
-        created_at:new Date().toISOString(),details:{origem:'Estimativa local; não é apuração oficial.',cbs:cbs.value,ibs:ibs.value,
-          ...(cbs.reference ? {refCbs:referenceLabel(cbs.reference)} : {}), ...(ibs.reference ? {refIbs:referenceLabel(ibs.reference)} : {}),
-          ...(useIS ? {isRate,isBase} : {})}});
-    } catch (e) {setErr(friendly(e)); setResult(null)}
+    try {setResult(simulate({scenario, title:scenario?.label ?? title, regime,date,base,cbs,ibs,confirmed, is:useIS?{base:isBase,rate:isRate}:undefined}))}
+    catch (e) {setErr(friendly(e)); setResult(null)}
   }
   async function store() {
     if (!result || busy) return;
     setBusy(true);
     try {await save(result); setSavedId(result.id); notify('Simulação salva no histórico.')} catch (e) {setErr(friendly(e))} finally {setBusy(false)}
   }
-  return <><PageHeading kicker="FERRAMENTAS FISCAIS" title="Calculadora RTC" desc="Explore cenários de IBS, CBS e Imposto Seletivo."/>
-    <Notice>Confira a <a href="https://consumo.tributos.gov.br/servico/calcular-tributos-consumo/calculadora/regime-geral" target="_blank" rel="noreferrer">calculadora oficial online</a> e suas regras vigentes. As referências não são atualizadas em tempo real. Esta estimativa não determina tributos devidos.</Notice>
+  return <><PageHeading kicker="FERRAMENTAS FISCAIS" title="Calculadora RTC" desc="Escolha uma operação para comparar valores, conferir premissas e consultar as regras de IBS, CBS e IS."/>
+    <Notice>Estimativa independente, não guia de recolhimento. As referências não são atualizadas em tempo real. Confira a <a href="https://consumo.tributos.gov.br/servico/calcular-tributos-consumo/calculadora/regime-geral" target="_blank" rel="noreferrer">calculadora oficial online</a> e a legislação da data da operação.</Notice>
     <div className="tabs"><button className={tab==='quick'?'active':''} onClick={()=>setTab('quick')}><SlidersHorizontal size={16}/> Estimativa rápida</button><button className={tab==='engine'?'active':''} onClick={()=>setTab('engine')}><Landmark size={16}/> Motor da Receita</button></div>
-    {tab==='engine'?<RTC/>:<div className="form-layout"><form className="panel form-panel" onSubmit={calc} onChange={clear}>
-      <div className="block-title"><Tile icon={Calc}/><div><h2>Nova simulação</h2><p>Defina os parâmetros da sua operação.</p></div></div>
-      <div className="form-grid"><Field label="Nome do cenário" wide><input required maxLength={140} value={title} onChange={e=>setTitle(e.target.value)}/></Field>
-        <Field label="Regime tributário"><select value={regime} onChange={e=>{setRegime(e.target.value as Regime);setUseIS(false);setCbs({value:''});setIbs({value:''})}}><option>Regime regular</option><option>Simples Nacional</option></select></Field>
+    {tab==='engine' ? scenario && !inPeriod ? <section className="panel form-panel"><Notice>A data escolhida está fora da vigência desta opção no catálogo. Revise o fato gerador ou escolha outro cenário.</Notice><button className="btn" onClick={()=>setTab('quick')}>Rever cenário e data</button></section> : <RtcConsultation scenario={scenario} date={date}/> :
+    <div className="form-layout"><form className="panel form-panel" onSubmit={calc}>
+      <div className="block-title"><Tile icon={Calc}/><div><h2>Nova simulação</h2><p>Comece pelo cenário. A data e o enquadramento determinam as sugestões disponíveis.</p></div></div>
+      <div className="form-grid"><ScenarioPicker date={date} selected={scenario} onPick={pick}/>
+        {!scenario && <Field label="Título personalizado" wide><input required maxLength={140} value={title} onChange={e=>{setTitle(e.target.value);clear()}}/></Field>}
+        <Field label="Regime tributário"><select disabled={!!scenario} value={regime} onChange={e=>{setRegime(e.target.value as Regime);resetRates()}}><option>Regime regular</option><option>Simples Nacional</option></select></Field>
         <Field label="Fato gerador"><input type="date" required value={date} onChange={e=>changeDate(e.target.value)}/></Field>
-        <Field label="Base tributável ajustada (R$)" hint="Informe a base após os ajustes. Digite 1250,50 para ver 1.250,50." wide><MoneyInput value={base} onValueChange={setBase}/></Field>
-        <RateField tax="CBS" label={`Alíquota ${simple?'efetiva ':''}CBS (%)`} entry={cbs} reference={cbsRef} onChange={entry=>{setCbs(entry);clear()}}/>
-        <RateField tax="IBS" label={`Alíquota ${simple?'efetiva ':'total '}IBS (%)`} entry={ibs} reference={ibsRef} onChange={entry=>{setIbs(entry);clear()}}/>
-        <div className="span-all"><Notice>{simple ? <>Não há percentual único do Simples Nacional. Informe os percentuais efetivos do seu enquadramento para a competência; as alíquotas de teste de 2026 não se aplicam aos optantes (art. 348, III, c). Esta estimativa não apura o DAS. <a href={rateLaw} target="_blank" rel="noreferrer">Consultar a lei</a>.</> : ibsRef ? <>
-          <strong>Referência nominal · {cbsRef?'2026':'2027–2028'}.</strong> Use somente para simular a regra geral sem redução. {cbsRef?'Confira exceções, regimes específicos e condições de dispensa de recolhimento no art. 348.':'Sem sugestão de CBS para este período; informe o percentual aplicável.'} <a href={rateLaw} target="_blank" rel="noreferrer">LC 214/2025</a>. Revisão: 18/11/2026.
-        </> : 'Sem referência cadastrada para esta data. Consulte a legislação aplicável antes de informar os percentuais.'}</Notice></div>
-        {!simple&&<label className="check span-all"><input type="checkbox" checked={useIS} onChange={e=>setUseIS(e.target.checked)}/> Incluir Imposto Seletivo ad valorem</label>}
-        {useIS&&<><Field label="Base própria do IS (R$)"><MoneyInput value={isBase} onValueChange={setIsBase}/></Field><Field label="Alíquota do IS (%)"><input required inputMode="decimal" value={isRate} onChange={e=>setIsRate(e.target.value)}/></Field><small className="span-all fineprint">Não há alíquota geral sugerida para o IS. Confirme a incidência, a vigência e a alíquota do bem ou serviço.</small></>}
+        {scenario && <section className="scenario-guide span-all" aria-label="Configuração sugerida"><span className="eyebrow">CONFIGURAÇÃO SUGERIDA</span>
+          <h3>{scenario.label}</h3><p className="scenario-code">{scenarioCode(scenario)}</p>
+          <p><b>{scenario.quick ? treatment(scenario.quick) : 'Consulta por item no motor RTC'}.</b> {scenario.guidance}</p>
+          {!scenario.quick && scenario.rtcTreatment && <p>Tratamento descrito no RTC: <b>{scenario.rtcTreatment}</b>. Não equivale a uma alíquota informada ou a um resultado calculado.</p>}
+          <p><LawLink article={scenario.article} simple={simple}/>{scenario.family==='ibsCbs' && <> · <a href={svrs} target="_blank" rel="noreferrer">Tabela CST/cClassTrib · SVRS</a></>}</p>
+          {scenario.documents.length>0 && <details className="scenario-docs"><summary>Documentos vinculados no catálogo ({scenario.documents.length})</summary><p>{documentOptions(scenario)}. Confirme o modelo da sua operação.</p></details>}
+          <small className="fineprint">Vigência no catálogo: desde {readableDate(scenario.from)}{scenario.until?` até ${readableDate(scenario.until)}`:' (sem data final cadastrada)'}. O código não comprova o enquadramento legal.</small>
+          {!inPeriod ? <Notice tone="error">{date ? 'Fato gerador fora da vigência desta opção no catálogo.' : 'Informe o fato gerador.'} Escolha a data da operação ou outro cenário.</Notice> : scenario.quick ? <>
+            <p>{quickScope}</p><label className="check"><input type="checkbox" checked={confirmed} onChange={e=>{setConfirmed(e.target.checked);resetRates()}}/> Conferi as condições deste cenário para a data informada.</label>
+            {confirmed && (cbsRef || ibsRef) && <button type="button" className="btn align-start" disabled={(!cbsRef||!!cbs.reference)&&(!ibsRef||!!ibs.reference)} onClick={()=>{
+              if(cbsRef) setCbs({value:cbsRef.percent,reference:cbsRef}); if(ibsRef) setIbs({value:ibsRef.percent,reference:ibsRef}); clear();
+            }}>Aplicar sugestões: {[cbsRef,ibsRef].filter(r=>!!r).map(r=>`${r.tax} ${r.percent}%`).join(' · ')}</button>}
+          </> : <button type="button" className="btn primary align-start" onClick={()=>setTab('engine')}>Preparar consulta ao motor <ArrowRight size={15}/></button>}
+        </section>}
+        {quick && <div className="span-all fineprint">{scenario?'O regime acompanha o cenário. Para editar livremente, escolha Cenário personalizado.':'Confirme a opção de apuração do IBS e da CBS antes de informar percentuais.'} <LawLink article="art. 41"/>.</div>}
+        {canEstimate && <>
+          <div className="span-all"><Field label="Base tributável ajustada (R$)" hint="Digite 1250,50 para ver 1.250,50."><MoneyInput value={base} onValueChange={v=>{if(v!==base){setBase(v);clear()}}}/></Field>
+            <p className="fineprint field-source">{simple ? <>Use a base compatível com os percentuais efetivos informados. <LawLink simple article="art. 18"/>.</> : <>Informe o valor após as inclusões e exclusões aplicáveis, não o valor bruto por padrão. <LawLink article="art. 12"/>.</>}</p></div>
+          <RateField tax="CBS" label={`Alíquota ${simple?'efetiva ':''}CBS (%)`} entry={cbs} reference={cbsRef} onChange={entry=>{setCbs(entry);clear()}}/>
+          <RateField tax="IBS" label={`Alíquota ${simple?'efetiva ':'total '}IBS (%)`} entry={ibs} reference={ibsRef} onChange={entry=>{setIbs(entry);clear()}}/>
+          <div className="span-all"><Notice>{simple ? <>Não há percentual único do Simples Nacional. Informe as parcelas efetivas aplicáveis; o cálculo mensal depende da receita, do anexo e da faixa. Não apuramos o DAS (<LawLink simple article="art. 18"/>). As referências de teste de 2026 não se aplicam aos optantes (<LawLink article="art. 348, III, c"/>).</> : <>
+            {ibsRef ? <><b>{scenario?.quick?.reduction?'Referência considerando o tratamento selecionado.':'Referência nominal da regra geral, sem redução.'}</b> {date.startsWith('2026') ? <>Em 2026 há exceções e dispensa de recolhimento condicionada às obrigações acessórias (<LawLink article="art. 348"/>).</> : <>IBS de 2027–2028: <LawLink article="art. 344"/>. {cbsRef?'A sugestão de CBS a zero decorre da regra do item, não de uma alíquota geral.':'Não há sugestão de CBS para esta data.'}</>}</> : 'Sem referência local para esta data. Consulte a legislação antes de informar os percentuais.'} Valores manuais não são validados como alíquotas legais. Revisão: 18/11/2026.
+          </>}</Notice></div>
+          {!simple && !scenario && <label className="check span-all"><input type="checkbox" checked={useIS} onChange={e=>{setUseIS(e.target.checked);clear()}}/> Incluir Imposto Seletivo ad valorem</label>}
+          {useIS&&<><Field label="Base própria do IS (R$)"><MoneyInput value={isBase} onValueChange={v=>{setIsBase(v);clear()}}/></Field><Field label="Alíquota do IS (%)"><input required inputMode="decimal" value={isRate} onChange={e=>{setIsRate(e.target.value);clear()}}/></Field>
+            <small className="span-all fineprint">Hipótese manual sem alíquota sugerida nem parcela por unidade. Confira bem ou serviço, vigência e base própria. <LawLink article="arts. 409, 414 e 419"/>.</small></>}
+        </>}
       </div>{err&&<Notice tone="error">{err}</Notice>}
-      <div className="actions calc-actions"><button className="btn primary"><Calc size={16}/> Calcular estimativa</button></div>
-    </form><aside className="panel form-panel calc-result"><div className="block-title"><Tile icon={Layers3} color="blue"/><div><h2>Resumo do cálculo</h2><p>Memória do cenário</p></div></div>
-      {result?<div aria-live="polite"><span className="minor-label">TOTAL ESTIMADO</span><p className="big-figure">{money(result.cbs_cents+result.ibs_cents+result.is_cents)}</p><dl className="summary-list">{[['Base',result.base_cents],['CBS',result.cbs_cents],['IBS',result.ibs_cents],['IS',result.is_cents]].map(([k,v])=><div key={k}><dt>{k}</dt><dd>{money(Number(v))}</dd></div>)}</dl>
-        <p className="fineprint">Base × percentual ÷ 100 por tributo. Arredondamento para centavos (meio par).</p><button className="btn goldbtn full" disabled={busy||savedId===result.id} onClick={store}>{savedId===result.id?<BookmarkCheck size={16}/>:<Save size={16}/>}{savedId===result.id?'Simulação salva':busy?'Salvando…':'Salvar simulação'}</button>{savedId===result.id&&<button className="textbtn next-link" onClick={()=>navigate('historico')}>Abrir histórico <ChevronRight size={15}/></button>}
-      </div>:<div className="waiting"><RotateCcw size={26}/><h3>Aguardando os parâmetros</h3><p>Preencha os campos e calcule para ver a distribuição dos tributos.</p></div>}
+      {quick && <div className="actions calc-actions"><button className="btn primary" disabled={!canEstimate}><Calc size={16}/> Calcular estimativa</button></div>}
+    </form><aside className="panel form-panel calc-result"><div className="block-title"><Tile icon={Layers3} color="blue"/><div><h2>{quick?'Resumo do cálculo':'Consulta especializada'}</h2><p>{quick?'Bases, percentuais e premissas':'Sem estimativa linear para este cenário'}</p></div></div>
+      {result?<div aria-live="polite"><SimulationMemory o={result}/><div className="stack memory-actions"><button className="btn goldbtn full" disabled={busy||savedId===result.id} onClick={store}>{savedId===result.id?<BookmarkCheck size={16}/>:<Save size={16}/>}{savedId===result.id?'Simulação salva':busy?'Salvando…':'Salvar simulação'}</button>
+        <button className="btn" onClick={()=>download(JSON.stringify(result,null,2),'memoria-'+result.id+'.json')}><Download size={15}/> Baixar memória</button></div>{savedId===result.id&&<button className="textbtn next-link" onClick={()=>navigate('historico')}>Abrir histórico <ChevronRight size={15}/></button>}
+      </div>:quick?<div className="waiting"><RotateCcw size={26}/><h3>Aguardando os parâmetros</h3><p>{scenario&&!confirmed?'Confira a data e as condições do cenário para liberar os campos.':'Informe a base e os percentuais para ver como cada valor é calculado.'}</p></div>:<div className="waiting"><Landmark size={26}/><h3>Use o contrato do motor</h3><p>O modelo leva a classificação escolhida, não alíquotas de exemplo. Complete os dados reais e confira os estados e a memória por item na resposta.</p></div>}
     </aside></div>}</>;
 }

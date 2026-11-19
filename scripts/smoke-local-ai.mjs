@@ -8,6 +8,7 @@ import {tmpdir} from 'node:os';
 import {extname,join,resolve} from 'node:path';
 import {chromium} from 'playwright-core';
 import {articles} from '../src/lib/knowledge.ts';
+import {transitionGuide} from '../src/lib/rateReferences.ts';
 import {modelURL,modelBytes,modelSha256} from '../src/lib/modelSpec.ts';
 
 const file=process.env.E_LEAO_GGUF, executablePath=process.env.CHROMIUM_PATH;
@@ -59,22 +60,39 @@ try{
     return get(input,init);
   }},modelURL);
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(origin+'/e-leao/#/assistente');
+  await page.goto(origin+'/e-leao/#/visao-geral');
   await page.getByRole('button',{name:'Entrar',exact:true}).click();
   const login=page.getByRole('dialog');await login.getByLabel('E-mail',{exact:true}).fill(user.email);
   await login.locator('input[autocomplete="current-password"]').fill('somente-teste');
   await login.getByRole('button',{name:'Entrar na sua conta'}).click();
-  const activate=page.getByRole('button',{name:'Ativar IA neste dispositivo'});
-  await activate.waitFor();assert.equal(downloads,0);
-  await activate.click();await page.getByText('Modelo pronto',{exact:true}).waitFor({timeout:120_000});
-  await page.getByLabel('Sua pergunta').fill('Para que serve o DANFSe?');
-  await page.getByRole('button',{name:'Enviar pergunta'}).click();
+  const link=page.getByRole('link',{name:'Assistente fiscal',exact:true});await link.waitFor();assert.equal(downloads,0,'A página inicial não baixa a IA');
+  await link.click();
+  const ready=page.getByText('Modelo pronto',{exact:true});await ready.waitFor({timeout:120_000});
+  const start=Date.now();
+  await page.getByRole('button',{name:transitionGuide.question,exact:true}).click();
+  const direct=page.locator('.bubble.agent').filter({hasText:'e-Leão · Guia revisado'});
+  await direct.waitFor({timeout:3000});assert.equal(await direct.locator('p').innerText(),transitionGuide.answer);
+  assert.equal(await direct.getByRole('link',{name:transitionGuide.question}).getAttribute('href'),transitionGuide.source);
+  assert.equal(await page.getByRole('button',{name:/Cancelar explicação/}).count(),0);
+  console.log(`Pergunta das alíquotas: guia com fonte em ${Date.now()-start} ms, sem cancelar.`);
+  const ask=async question=>{
+    await page.getByLabel('Sua pergunta').fill(question);
+    await page.getByRole('button',{name:'Enviar pergunta'}).click();
+  };
+  // Interrupt a real worker, not the FAQ shortcut; never revive its cancelled turn.
+  await ask('Como preparo um rascunho de nota de serviço?');
+  await page.getByRole('button',{name:'Cancelar explicação'}).click();
+  await page.getByText(/Explicação interrompida/).waitFor();await ready.waitFor({timeout:60_000});
+  const answers=page.locator('.bubble.agent');assert.equal(await answers.count(),2);
+  assert.equal(await answers.last().locator('small').innerText(),'e-Leão · Guia revisado');
+  await ask('Para que serve o DANFSe?');
+  await page.locator('.bubble.agent').last().getByRole('link',{name:'O que é o DANFSe?'}).waitFor({timeout:3000});
   const reply=page.locator('.bubble.agent').filter({hasText:'e-Leão · IA local'});
-  await reply.waitFor({timeout:125_000});
+  await reply.waitFor({timeout:95_000});assert.equal(await answers.count(),3);
   const text=await reply.locator('p').innerText();assert.match(text,/nota|pdf|nfs|auxiliar/i);
   assert.ok(await reply.getByRole('link',{name:'O que é o DANFSe?'}).count());
   // Reload the whole page, not only the JS instance. A second transfer must not occur.
-  await page.reload();await activate.click();await page.getByText('Modelo pronto',{exact:true}).waitFor({timeout:60_000});
+  await page.reload();await ready.waitFor({timeout:60_000});
   assert.equal(downloads,1,'O segundo carregamento deve reutilizar o cache');
   const cachedWeights=()=>page.evaluate(async()=>{
     const root=await navigator.storage.getDirectory(),dir=await root.getDirectoryHandle('cache');
@@ -85,6 +103,20 @@ try{
   await page.getByText('Modelo e armazenamento',{exact:true}).click();
   await page.getByRole('button',{name:'Apagar apenas o modelo em cache'}).click();
   await page.getByText(/Cache do modelo removido/).waitFor();assert.deepEqual(await cachedWeights(),[]);
+  await page.reload();await page.getByRole('button',{name:'Voltar a usar a IA'}).waitFor();
+  assert.deepEqual(await cachedWeights(),[]);assert.equal(downloads,1,'Remover os pesos não deve provocar novo download automático');
+  // With no cached weights, a stalled/failed transfer must not hold the chat hostage.
+  let release;const gate=new Promise(resolve=>{release=resolve});
+  await page.route(origin+'/weights',async route=>{await gate;await route.fulfill({status:503,body:'Unavailable'})});
+  const requested=page.waitForRequest(origin+'/weights');
+  try {
+    await page.getByRole('button',{name:'Voltar a usar a IA'}).click();await requested;
+    await page.getByRole('button',{name:transitionGuide.question,exact:true}).click();
+    assert.equal(await answers.locator('p').innerText(),transitionGuide.answer);
+  } finally {release()}
+  await page.getByText('IA indisponível',{exact:true}).waitFor();
+  await ask('Para que serve o DANFSe?');assert.equal(await answers.count(),2);
+  assert.ok(await answers.last().getByRole('link',{name:'O que é o DANFSe?'}).count());
   assert.deepEqual(unexpected,[]);assert.deepEqual(errors,[]);
-  console.log(`IA local na tela, reuso e remoção do cache confirmados. Resposta de teste: ${text}`);
+  console.log(`Início automático, cancelamento, inferência real, reuso/remoção do cache e consulta durante falha de download confirmados. Resposta de teste: ${text}`);
 }finally{await context?.close();server.closeAllConnections();server.close();await rm(profile,{recursive:true,force:true})}

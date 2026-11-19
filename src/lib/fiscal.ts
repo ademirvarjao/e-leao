@@ -4,6 +4,11 @@ const currency=new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'});
 export const money=(cents:number)=>currency.format(cents/100);
 export const readableDate=(s:string)=>new Date(s.slice(0,10)+'T12:00:00').toLocaleDateString('pt-BR');
 export const today=()=>{const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-')};
+export function validDate(date:string) {
+ if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+ const parsed = new Date(`${date}T00:00:00Z`);
+ return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0,10) === date;
+}
 export function monthOffset(period:string,offset:number){const [y,m]=period.split('-').map(Number);const d=new Date(y,m-1+offset,15);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
 export function monthName(period:string,short=false){const s=new Date(period+'-15T12:00:00').toLocaleDateString('pt-BR',short?{month:'short'}:{month:'long',year:'numeric'}).replace('.','');return s[0].toLocaleUpperCase('pt-BR')+s.slice(1)}
 export function decimal(value:string,places=2,max=999999999){const v=value.trim().replace(',','.');if(!new RegExp(`^\\d+(?:\\.\\d{1,${places}})?$`).test(v))throw Error('Informe um número válido, sem separador de milhar.');const d=new Decimal(v);if(d.gt(max))throw Error(`Valor acima do limite de ${max}.`);return d;}

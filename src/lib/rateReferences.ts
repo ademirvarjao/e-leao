@@ -1,10 +1,11 @@
 import type {Article, Regime} from './types';
-
-export const rateLaw = 'https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp214compilado.htm';
+import {validDate} from './fiscal';
+import {lc214 as rateLaw} from './legal';
 export type Tax = 'CBS' | 'IBS';
 export type RateReference = {
   tax: Tax; percent: string; from: string; until: string; article: string; scope: string;
 };
+export type RateEntry = {value:string; reference?: RateReference};
 // Nominal transition rates, not estimates of an effective tax burden or amounts payable.
 const references: RateReference[] = [
   {tax:'CBS', percent:'0,9', from:'2026-01-01', until:'2026-12-31', article:'346', scope:'Alíquota de teste da União'},
@@ -12,13 +13,11 @@ const references: RateReference[] = [
   {tax:'IBS', percent:'0,1', from:'2027-01-01', until:'2028-12-31', article:'344', scope:'Total: 0,05% estadual + 0,05% municipal'},
 ];
 export function rateReference(tax: Tax, regime: Regime, date: string) {
-  if (regime !== 'Regime regular' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
-  const parsed = new Date(`${date}T00:00:00Z`);
-  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0,10)!==date) return;
+  if (regime !== 'Regime regular' || !validDate(date)) return;
   return references.find(r => r.tax === tax && date >= r.from && date <= r.until);
 }
 export function referenceLabel(r: RateReference) {
-  return `${r.tax} ${r.percent}% · LC 214/2025, art. ${r.article} (${r.from} a ${r.until})`;
+  return `${r.tax} ${r.percent}% · LC 214/2025, art. ${r.article} (referência local: ${r.from} a ${r.until}) · ${r.scope}`;
 }
 // This built-in source is shared by the calculator and the assistant. It isn't a DB article to vote on.
 export const transitionGuide: Article = {

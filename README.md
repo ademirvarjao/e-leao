@@ -15,11 +15,12 @@ Configuração do browser em `.env.example`. `npm run build` verifica TypeScript
 ## Funções
 
 - Painel do espaço privado com indicadores, atividade e gráficos responsivos.
-- Estimativa rápida de IBS, CBS e IS em decimal exato; alíquotas manuais ou referências legais aplicadas explicitamente por data e regime; memória exportável e cenários guardados no histórico.
+- **Nome do cenário** pesquisável por operação, CST/cClassTrib ou atividade do Simples. Opções, vigências e vínculos de documento do catálogo RTC da Receita; cenários usuais e título manual. [Cobertura, fontes, limites e reprodução do catálogo](docs/CENARIOS.md).
+- Estimativa rápida de IBS, CBS e IS em decimal exato. Quando a hipótese cabe no cálculo local, há sugestões opt-in por classificação, regime e data. A memória por tributo com as premissas, alíquotas manuais ou referências e dispositivos legais pode ser salva e exportada; hipóteses complexas abrem um modelo a completar no motor RTC.
 - Aba avançada para enviar contratos de operação RTC às APIs allow-listed e interpretar as respostas originais.
 - Rascunhos de NFS-e independentes da autorização, com direcionamento ao emissor oficial. Geração auxiliar de DANFSe a partir de XML nacional autorizado; não emite nota.
 - Solicitação de acesso, aprovação e convite manual; autenticação, recuperação de senha e dados próprios isolados por RLS no Supabase.
-- Consulta imediata de guias com fontes e IA generativa gratuita no dispositivo. Em **Assistente fiscal → Ativar IA neste dispositivo**, o navegador baixa o Qwen3-0.6B (~397 MB, uma vez se o cache for mantido). Não exige chave de IA nem envia perguntas a uma API externa.
+- Consulta imediata de guias com fontes e IA generativa gratuita no dispositivo. **Ao abrir o Assistente fiscal**, o navegador prepara o Qwen3-0.6B automaticamente (~397 MB na primeira vez, com reuso do cache). Perguntas dos guias têm resposta direta; para perguntas livres, a fonte encontrada já aparece enquanto a IA prepara uma explicação. Quem preferir pode escolher **Usar só os guias**. Não exige chave de IA nem envia perguntas a uma API externa.
 - Ferramentas gerenciais administrativas para contas, operações agregadas, notas de curadoria e feedback.
 - Hash navigation, atalhos de teclado, modos de acessibilidade, exportação CSV com neutralização contra fórmulas e experiência mobile.
 
