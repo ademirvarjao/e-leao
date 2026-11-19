@@ -18,10 +18,12 @@
     "@wllama/wllama": "3.13.0",
     "@wllama/wllama-compat": "3.13.0",
     "decimal.js": "^10.5.0",
+    "jspdf": "4.2.1",
     "lucide-react": "^0.561.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
-    "react-number-format": "^5.4.5"
+    "react-number-format": "^5.4.5",
+    "write-excel-file": "4.1.1"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.14",

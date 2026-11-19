@@ -3,9 +3,6 @@ import {money, readableDate} from '../lib/fiscal';
 import {LawLink} from './LawLink';
 import {lc214} from '../lib/legal';
 
-export const hasSimulationMemory = (o: Operation) => o.kind === 'simulation' && o.details.memoriaVersao === '1' &&
-  Object.values(o.details).every(v=>typeof v==='string') && typeof o.details.cbs==='string' && typeof o.details.ibs==='string' &&
-  (o.details.isRate === undefined || /^\d{1,11}$/.test(o.details.isBaseCents));
 function TaxLine({tax, cents, base, rate, reference}: {tax:string; cents:number; base:number; rate:string; reference?:string}) {
   return <div className="memory-tax"><dt>{tax}</dt><dd><b>{money(cents)}</b>
     <span className="memory-formula">{money(base)} × {rate.replace('.',',')}%</span>
