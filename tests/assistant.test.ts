@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {articles, matchesSearch, rank} from '../src/lib/knowledge';
-import {checkedAnswer, guideContext, inferGuide, makePrompt, type LocalModel} from '../src/lib/assistant';
+import {checkedAnswer, guideContext, inferGuide, makePrompt, sameQuestion, type LocalModel} from '../src/lib/assistant';
 import {rateReference, transitionGuide} from '../src/lib/rateReferences';
 import {isFeedData} from '../src/components/OfficialUpdates';
 
@@ -24,6 +24,14 @@ test('a pesquisa encontra termos não contíguos, respostas e a sigla DAS; os gu
   assert.match(makePrompt('Pode resumir?',[guide],guide.question)[1].content,/anterior: O que é o DANFSe/);
   assert.doesNotMatch(makePrompt('Pode explicar a CBS?',[guide],guide.question)[1].content,/DANFSe/);
   assert.equal(checkedAnswer('   ',[guide]),null);assert.equal(checkedAnswer('<think>rascunho</think>Um documento auxiliar.',[guide]),'Um documento auxiliar.');
+});
+test('resposta direta aceita variações de escrita, mas não troca o período nem a fonte',()=>{
+  const question='  Quais sao   as ALIQUOTAS de teste de IBS e CBS em 2026! ';
+  assert.ok(sameQuestion(question,transitionGuide.question));
+  assert.equal(sameQuestion(question.replace('2026','2027'),transitionGuide.question),false);
+  assert.deepEqual(guideContext(question,articles),[transitionGuide]);
+  const guide=articles.find(a=>a.id==='guia-5')!;
+  assert.deepEqual(guideContext(guide.question,[{...guide,source:'http://example.test'},guide],transitionGuide),[guide]);
 });
 test('seleção sem correspondência literal aceita somente um guia existente no catálogo',async()=>{
   let output='2';const model:LocalModel={close:()=>{},complete:async()=>output};const signal=new AbortController().signal;

@@ -1,4 +1,4 @@
-// This module (including its WASM assets) is only loaded after explicit user activation.
+// Lazy-loaded on the assistant screen only (or to remove its cached weights).
 import {CacheManager,ModelValidationStatus,Wllama} from '@wllama/wllama';
 import wasm from '@wllama/wllama/esm/wasm/wllama.wasm?url';
 import compatWasm from '@wllama/wllama-compat/wasm/wllama.wasm?url';
@@ -32,10 +32,21 @@ export const loadLocalModel: ModelLoader = async (signal,progress) => {
     // CPU-only single-thread works on static Pages without WebGPU, COOP or COEP headers.
     await llm.loadModel(file,{n_threads:1,n_gpu_layers:0,n_parallel:1,n_ctx:2048,n_batch:128,warmup:false,reasoning:false});
     signal.throwIfAborted();
-    return {close, async complete(messages,abortSignal,maxTokens=200) {
+    return {close, async complete(messages,abortSignal,maxTokens=144,progress) {
       abortSignal.throwIfAborted();
-      const result = await llm.createChatCompletion({messages,abortSignal,temperature:0.15,max_tokens:Math.min(200,maxTokens),chat_template_kwargs:{enable_thinking:false}});
-      return result.choices[0]?.message.content ?? '';
+      let text='',processed=0,truncated=false;
+      await llm.createChatCompletion({messages,abortSignal,temperature:0.15,max_tokens:Math.min(144,maxTokens),chat_template_kwargs:{enable_thinking:false},
+        stream:true,return_progress:true,onData:chunk=>{
+          abortSignal.throwIfAborted();
+          const n=chunk.prompt_progress?.processed ?? 0;
+          if(n>processed){processed=n;progress?.('reading')}
+          const choice=chunk.choices?.[0];
+          // Report activity, not unverified tokens (which could reverse a tax rate).
+          if(choice?.delta?.content){text+=choice.delta.content;progress?.('writing')}
+          if(choice?.finish_reason==='length')truncated=true;
+        }});
+      abortSignal.throwIfAborted();
+      return truncated?'':text;
     }};
   } catch (error) {close(); throw error} finally {signal.removeEventListener('abort',close)}
 };
