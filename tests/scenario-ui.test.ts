@@ -83,6 +83,28 @@ test('do cenário ao histórico e ao motor RTC',async t=>{
     await u.click(screen.getByRole('button',{name:'Adicionar item'}));assert.equal(screen.queryByRole('region',{name:'Resultado da consulta'}),null);
     assert.ok(screen.getByRole('region',{name:'Item 2'}));await u.click(screen.getByRole('button',{name:'Remover item 2'}));
   });
+  await t.test('consultas de referência e de conexão não transmitem a operação nem bloqueiam a tabela local',async t=>{
+    t.after(cleanup);const u=open(React.createElement(Calculator));date('2026-11-18');
+    const reads=t.mock.method(globalThis,'fetch',async(url:string)=>{
+      assert.match(url,/rtc-referencias\/ncm-[0-9a-f]{64}\.json$/);return Response.json({'2710125':['Gasolinas','2022-04-01','9999-12-31'],'27101259':['Outras','2022-04-01','9999-12-31']});
+    });
+    const gateway=t.mock.method(Object.getPrototypeOf(db.functions),'invoke',async(_name:string,args:{body:{action:string,payload:unknown}})=>{
+      if(args.body.action==='reference-version')return {data:{dbVersion:'V0060'},error:null,response:new Response()};
+      return {data:null,error:Error('detalhe interno'),response:Response.json({code:'RTC_NOT_CONFIGURED'},{status:503})};
+    });
+    await u.click(screen.getByText('Consultar base pública da Receita · NCM e NBS'));
+    fireEvent.change(screen.getByLabelText('Código a conferir (8 dígitos)'),{target:{value:'27101259'}});assert.equal(reads.mock.callCount(),0);
+    await u.click(screen.getByRole('button',{name:'Conferir NCM na base pública'}));assert.ok(await screen.findByText('27101259 · Outras'));assert.equal(gateway.mock.callCount(),0);
+    await u.click(screen.getByRole('button',{name:'Comparar versão com o piloto da Receita'}));assert.ok(await screen.findByText(/Difere da edição desta tabela/));
+    assert.deepEqual(gateway.mock.calls[0].arguments[1].body,{action:'reference-version',payload:{}});
+    await u.click(screen.getByRole('radio',{name:/Exportações de combustíveis/}));
+    await u.click(await screen.findByRole('button',{name:'Verificar conexão do serviço'}));assert.ok(await screen.findByText(/Este serviço fiscal ainda não foi conectado/));
+    assert.deepEqual(gateway.mock.calls[1].arguments[1].body,{action:'check-service',payload:{service:'regular'}});
+    // A failed diagnostic does not disable the public tables or change any fiscal input.
+    const item=within(screen.getByRole('region',{name:'Item 1'}));fireEvent.change(item.getByLabelText(/NCM da mercadoria/),{target:{value:'27101259'}});
+    await u.click(item.getByRole('button',{name:'Conferir NCM na base pública'}));assert.ok(await item.findByText('27101259 · Outras'));assert.equal(reads.mock.callCount(),1);assert.equal(gateway.mock.callCount(),2);
+    fireEvent.change(item.getByLabelText(/NCM da mercadoria/),{target:{value:'27101251'}});assert.equal(item.queryByText('27101259 · Outras'),null);
+  });
   await t.test('atividade do Simples e base da NFS-e têm fluxos próprios, sem dados de exemplo',async t=>{
     t.after(cleanup);const invoke=t.mock.method(Object.getPrototypeOf(db.functions),'invoke',async()=>({data:{baseRG:920.25,baseSN:null,avisos:['Confira o período.']},error:null,response:new Response(null,{status:200})}));
     const u=open(React.createElement(Calculator));date('2026-11-18');

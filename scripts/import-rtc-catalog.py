@@ -1,14 +1,65 @@
 #!/usr/bin/env python3
-"""Export scenario and municipality metadata from the pinned Receita RTC Flyway sources (see docs/CENARIOS.md)."""
+"""Export public catalog and nomenclature data from the pinned Receita RTC Flyway sources (see docs/CENARIOS.md)."""
 import argparse
 import hashlib
 import json
+import re
 import sqlite3
+import tarfile
+import tempfile
+import urllib.request
 from pathlib import Path
 
 REVISION = '150cccbe414d4a5edea703e4f7a424af5aa222c7'
 SQL_SHA256 = '703add8fe9bfc4fa2ac592d429adc0497cfa36c720d2ab623698b8f6931ca4cb'
-DEST = Path(__file__).resolve().parents[1] / 'src/data/rtc-catalog.json'
+ROOT = Path(__file__).resolve().parents[1]
+DEST = ROOT / 'src/data/rtc-catalog.json'
+ASSETS = ROOT / 'public/rtc-referencias'
+REPO = 'calculadora-rtc-regime-regular'
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args):
+        raise ValueError('Redirecionamento inesperado da fonte RTC fixada.')
+
+
+def download_sql(root):
+    # Only copy SQL from the pinned public archive; export() verifies its digest before executing it.
+    url = f'https://codeload.github.com/ReceitaFederal/{REPO}/tar.gz/{REVISION}'
+    prefix = f'{REPO}-{REVISION}/flyway/sql/'
+    opener = urllib.request.build_opener(NoRedirect())
+    with opener.open(url, timeout=30) as response, tarfile.open(fileobj=response, mode='r|gz') as archive:
+        size = 0
+        for member in archive:
+            if not member.isfile() or not member.name.startswith(prefix):
+                continue
+            name = member.name[len(prefix):]
+            if not re.fullmatch(r'(criacao|manutencao)/[\w.-]+\.sql', name):
+                continue
+            size += member.size
+            if size > 12_000_000:
+                raise ValueError('SQL supera o limite da revisão.')
+            target = root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive.extractfile(member).read())
+
+
+def dump(obj):
+    return json.dumps(obj, ensure_ascii=False, separators=(',', ':'))
+
+
+def reference_files(db):
+    version, date = db.execute('select VRBD_VERSAO_BASE_DADO, date(VRBD_DATA) from VERSAO_BASE_DADO order by VRBD_ID desc limit 1').fetchone()
+    info = {'version': version, 'date': date, 'sha256': {}}
+    assets = {}
+    for kind in ('ncm', 'nbs'):
+        # Keep parent descriptions (e.g. a leaf named "Outras") and original periods.
+        rows = db.execute(f'select {kind}_cd, {kind}_descricao, {kind}_inicio_vigencia, {kind}_fim_vigencia from {kind} order by {kind}_cd')
+        content = dump({code: [label, start, end] for code, label, start, end in rows}) + '\n'
+        sha = hashlib.sha256(content.encode()).hexdigest()
+        info['sha256'][kind] = sha
+        assets[ASSETS / f'{kind}-{sha}.json'] = content
+    return info, assets
 
 
 def export(root):
@@ -72,6 +123,7 @@ def export(root):
     places = {}
     for uf, code, name in db.execute('select UF_SIGLA, MUNI_CD, MUNI_NOME from MUNICIPIO join UF on UF_CD=MUNI_UF_CD order by UF_SIGLA, MUNI_CD'):
         places.setdefault(uf, {})[str(code)] = name
+    reference, assets = reference_files(db)
     db.close()
     if [len(rows) for rows in groups.values()] != [164, 29, 15]:
         raise ValueError('Cobertura diferente da revisão conferida.')
@@ -79,24 +131,55 @@ def export(root):
         if len({r['code'] for r in rows}) != len(rows):
             raise ValueError('Código duplicado dentro da mesma família.')
     # One line per record keeps both provenance reviews and diffs small.
-    def dump(obj):
-        return json.dumps(obj, ensure_ascii=False, separators=(',', ':'))
     tables = [f'  "{key}": [\n    ' + ',\n    '.join(dump(r) for r in rows) + '\n  ]'
               for key, rows in groups.items()]
-    catalog = '{\n  "version": "1.6.1",\n  "revision": "' + REVISION + '",\n  "documents": ' + dump(documents) + ',\n' + ',\n'.join(tables) + '\n}\n'
+    catalog = '{\n  "version": "1.6.1",\n  "revision": "' + REVISION + '",\n  "reference": ' + dump(reference) + ',\n  "documents": ' + dump(documents) + ',\n' + ',\n'.join(tables) + '\n}\n'
 
-    return {DEST: catalog, DEST.with_name('rtc-municipios.json'): json.dumps(places, ensure_ascii=False, separators=(',', ':')) + '\n'}
+    return {DEST: catalog, DEST.with_name('rtc-municipios.json'): dump(places) + '\n'}, assets
+
+
+def prepared():
+    catalog = json.loads(DEST.read_text(encoding='utf-8'))
+    if catalog['revision'] != REVISION:
+        return False
+    for kind in ('ncm', 'nbs'):
+        sha = catalog['reference']['sha256'][kind]
+        if not re.fullmatch('[0-9a-f]{64}', sha):
+            return False
+        path = ASSETS / f'{kind}-{sha}.json'
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != sha:
+            return False
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('sql', type=Path, nargs='?', help='flyway/sql da revisão fixada (sem rede); se omitido, usar GitHub da Receita')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--check', action='store_true', help='conferir arquivos versionados, sem escrevê-los')
+    mode.add_argument('--prepare', action='store_true', help='preparar somente as tabelas públicas da interface, sem alterar o catálogo versionado')
+    args = parser.parse_args()
+    if args.prepare and not args.sql and prepared():
+        print('Referências NCM/NBS já conferidas (cache local da revisão fixada).')
+        return
+    with tempfile.TemporaryDirectory() as temp:
+        root = args.sql or Path(temp)
+        if not args.sql:
+            print('Lendo a revisão pública da Receita Federal no GitHub:', REVISION, flush=True)
+            download_sql(root)
+        versioned, assets = export(root)
+    for dest, data in versioned.items():
+        if args.check or args.prepare:
+            if dest.read_text(encoding='utf-8') != data:
+                raise SystemExit(f'{dest.name} diverge da fonte; publicação interrompida.')
+        else:
+            dest.write_text(data, encoding='utf-8')
+    if not args.check:
+        for dest, data in assets.items():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data.encode())
+    print('Catálogo, municípios e tabelas NCM/NBS conferidos com a base pública RTC.')
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('sql', type=Path, help='diretório flyway/sql da revisão ' + REVISION)
-    parser.add_argument('--check', action='store_true', help='apenas verificar o JSON versionado')
-    args = parser.parse_args()
-    for dest, data in export(args.sql).items():
-        if args.check:
-            if dest.read_text(encoding='utf-8') != data:
-                raise SystemExit(f'{dest.name} diverge da fonte.')
-        else:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(data, encoding='utf-8')
+    main()

@@ -5,13 +5,14 @@ import {MoneyInput} from '../components/MoneyInput';
 import {RateField} from '../components/RateField';
 import {ReportExports} from '../components/ReportExports';
 import {simulationReport} from '../lib/reports';
+import {ReferencePanel} from '../components/RtcReference';
 import {ScenarioPicker} from '../components/ScenarioPicker';
 import {SimulationMemory} from '../components/SimulationMemory';
 import {navigate} from '../components/nav';
 import {Busy, Field, Notice, PageHeading, Tile} from '../components/ui';
 import {friendly} from '../lib/client';
 import {readableDate, today, validDate} from '../lib/fiscal';
-import {svrs} from '../lib/legal';
+import {rtcPortal,svrs} from '../lib/legal';
 import {rateReference, type RateEntry} from '../lib/rateReferences';
 import {documentOptions, isInCatalogPeriod, scenarioCode, suggestedRate, treatment, type Scenario} from '../lib/scenarios';
 import {quickScope, simulate} from '../lib/simulation';
@@ -56,11 +57,12 @@ export default function Calculator() {
     try {await save(result); setSavedId(result.id); notify('Simulação salva no histórico.')} catch (e) {setErr(friendly(e))} finally {setBusy(false)}
   }
   return <><PageHeading kicker="FERRAMENTAS FISCAIS" title="Calculadora RTC" desc="Escolha uma operação para comparar valores, conferir premissas e consultar as regras de IBS, CBS e IS."/>
-    <Notice>Estimativa independente, não guia de recolhimento. As referências não são atualizadas em tempo real. Confira a <a href="https://consumo.tributos.gov.br/servico/calcular-tributos-consumo/calculadora/regime-geral" target="_blank" rel="noreferrer">calculadora oficial online</a> e a legislação da data da operação.</Notice>
+    <Notice>Estimativa independente, não guia de recolhimento. As referências não são atualizadas em tempo real. Confira a <a href={rtcPortal} target="_blank" rel="noreferrer">calculadora oficial online</a> e a legislação da data da operação.</Notice>
     <ScenarioPicker date={date} selected={scenario} onPick={pick}/>
     <div className="panel calc-context"><div><span className="eyebrow">02 · DADOS DA OPERAÇÃO</span><h2 id="dados-cenario" tabIndex={-1}>{tab==='base'?'Base da NFS-e':scenario?.label??'Cenário personalizado'}</h2></div>
       <Field label="Fato gerador"><input type="date" required value={date} onChange={e=>changeDate(e.target.value)}/></Field></div>
-    <div className="tabs" role="group" aria-label="Método de cálculo"><button aria-pressed={tab==='quick'} disabled={!quick} className={tab==='quick'?'active':''} onClick={()=>setTab('quick')}><SlidersHorizontal size={16}/> Estimativa rápida</button><button aria-pressed={tab==='engine'} className={tab==='engine'?'active':''} onClick={()=>setTab('engine')}><Landmark size={16}/> Motor da Receita</button><button aria-pressed={tab==='base'} className={tab==='base'?'active':''} onClick={()=>{pick();setTab('base')}}><FileText size={16}/> Base da NFS-e</button></div>
+    <ReferencePanel date={date}/>
+    <div className="tabs" role="group" aria-label="Método de cálculo"><button aria-pressed={tab==='quick'} disabled={!quick} className={tab==='quick'?'active':''} onClick={()=>setTab('quick')}><SlidersHorizontal size={16}/> Estimativa rápida</button><button aria-pressed={tab==='engine'} className={tab==='engine'?'active':''} onClick={()=>setTab('engine')}><Landmark size={16}/> Motor RTC</button><button aria-pressed={tab==='base'} className={tab==='base'?'active':''} onClick={()=>{pick();setTab('base')}}><FileText size={16}/> Base da NFS-e</button></div>
         {tab!=='base' && scenario && <section className="scenario-guide span-all" aria-label="Configuração sugerida"><span className="eyebrow">ENQUADRAMENTO DO CENÁRIO</span>
           <p className="scenario-code">{scenarioCode(scenario)}</p>
           <p><b>{scenario.quick ? treatment(scenario.quick) : 'Consulta por item no motor RTC'}.</b> {scenario.guidance}</p>

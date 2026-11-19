@@ -15,3 +15,6 @@ __pycache__/
 
 # Pesos externos usados somente no teste opcional da IA
 *.gguf
+
+# Índices públicos RTC reproduzíveis a partir das migrações verificadas
+/public/rtc-referencias/

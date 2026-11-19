@@ -5,9 +5,11 @@ import {services,type Engine} from '../lib/rtc';
 import {adjustmentFields,buildRtcRequest,changeItem,FormProblem,headerGroups,itemGroups,newDraft,newItem,type Group,type Spec,type Values} from '../lib/rtcForm';
 import {rtcReport,type Report} from '../lib/reports';
 import {catalogLabel,catalogSource,isInCatalogPeriod,scenarioCode,scenarios,type Scenario} from '../lib/scenarios';
-import {lc123,lc214} from '../lib/legal';
+import {lc123,lc214,rtcPortal} from '../lib/legal';
 import {useSpace} from '../lib/workspace';
 import {ReportExports,ReportSectionView} from './ReportExports';
+import {ReferenceCheck} from './RtcReference';
+import {FiscalServiceCheck} from './FiscalServiceCheck';
 import {MoneyInput} from './MoneyInput';
 import {Field,Notice,Tile} from './ui';
 
@@ -20,8 +22,9 @@ function Input({f,values,change}:FieldsProps&{f:Spec}) {
     </select>:f.kind==='money'?<MoneyInput required={!!f.required} value={value} onValueChange={update}/>:<input type={f.kind==='time'?'time':'text'} inputMode={f.digits?'numeric':f.kind==='rate'||f.kind==='decimal'?'decimal':undefined} pattern={f.digits?`[0-9]{${f.digits}}`:undefined} maxLength={f.digits??160} value={value} required={f.required} onChange={e=>update(e.target.value)}/>}
   </Field>;
 }
-function FieldGroup({group,...props}:FieldsProps&{group:Group}) {
-  return <fieldset className="rtc-fields"><legend>{group.title}</legend><div className="form-grid">{group.fields.map(f=><Input key={f.key} f={f} {...props}/>)}</div></fieldset>;
+function FieldGroup({group,date,...props}:FieldsProps&{group:Group;date?:string}) {
+  return <fieldset className="rtc-fields"><legend>{group.title}</legend><div className="form-grid">{group.fields.map(f=>date && (f.key==='ncm'||f.key==='nbs') ?
+    <div className="rtc-code-field" key={f.key}><Input f={f} {...props}/><ReferenceCheck kind={f.key} code={props.values[f.key]??''} date={date}/></div> : <Input key={f.key} f={f} {...props}/>)}</div></fieldset>;
 }
 
 export default function RtcConsultation({scenario,date,baseOnly=false}:{scenario?:Scenario;date:string;baseOnly?:boolean}) {
@@ -49,15 +52,16 @@ export default function RtcConsultation({scenario,date,baseOnly=false}:{scenario
   return <section className="panel form-panel rtc-consultation"><div className="block-title"><Tile icon={Landmark} color="blue"/><div><h2>{baseOnly?'Compor a base da NFS-e':'Consultar o motor RTC'}</h2><p>{baseOnly?'Preencha os valores do serviço. Esta consulta não emite uma nota.':'Informe os dados reais do documento. O cenário já identifica o primeiro item.'}</p></div></div>
     <form onSubmit={run}><fieldset className="rtc-body" aria-label="Dados para consulta" disabled={busy}>
       {!baseOnly&&!scenario&&<Field label="Serviço de cálculo"><select value={engine} onChange={e=>{clear();setEngine(e.target.value as Engine);setDraft(newDraft())}}><option value="regular">{services.regular}</option><option value="simple">{services.simple}</option></select></Field>}
+      <FiscalServiceCheck key={engine} service={engine}/>
       {!available?<Notice>Nenhum cenário deste serviço está vigente no catálogo para a data selecionada. Confira o fato gerador acima ou escolha outro serviço.</Notice>:<>
       <p className="fineprint">Os campos com asterisco (*) são obrigatórios. Preencha os demais apenas quando se aplicarem à operação.</p>
       {headerGroups(engine,draft.header,scenario).map(group=><FieldGroup key={group.title} group={group} values={draft.header} change={changeHeader}/>)}
       {engine!=='base'?<>{draft.items.map((item,i)=><section className="rtc-item" key={item._id} aria-label={`Item ${i+1}`}><div className="rtc-item-head"><h3>Item {i+1}</h3>{i>0&&<button type="button" className="textbtn" onClick={()=>remove('items',i)}><Trash2 size={15}/> Remover item {i+1}</button>}</div>
-        {itemGroups(engine,item,date,draft.header,i===0?scenario:undefined).map(group=><FieldGroup key={group.title} group={group} values={item} change={(k,v)=>changeRow('items',i,k,v)}/>)}</section>)}
+        {itemGroups(engine,item,date,draft.header,i===0?scenario:undefined).map(group=><FieldGroup key={group.title} group={group} date={date} values={item} change={(k,v)=>changeRow('items',i,k,v)}/>)}</section>)}
         <button className="btn align-start" type="button" onClick={()=>{clear();setDraft(d=>({...d,items:[...d.items,newItem()]}))}}><Plus size={16}/> Adicionar item</button></>:
         draft.header.situacao!=='locacao9903'&&<>{draft.adjustments.map((row,i)=><div className="rtc-item" key={row._id}><FieldGroup group={{title:`Ajuste ${i+1}`,fields:adjustmentFields(row)}} values={row} change={(k,v)=>changeRow('adjustments',i,k,v)}/><button className="textbtn" type="button" onClick={()=>remove('adjustments',i)}>Remover ajuste {i+1}</button></div>)}<button className="btn align-start" type="button" onClick={()=>{clear();setDraft(d=>({...d,adjustments:[...d.adjustments,{_id:crypto.randomUUID()}]}))}}><Plus size={16}/> Adicionar documento de ajuste</button></>}
       <p className="fineprint">Os dados só são enviados ao consultar. Não inclua dados pessoais. A cobertura depende do motor configurado para a conta.</p>
-      {err&&<Notice tone="error">{err}</Notice>}<button className="btn primary align-start" disabled={busy}>{busy?'Consultando…':session?'Consultar motor':'Entrar para consultar'}<ArrowRight size={16}/></button></>}
+      {err&&<Notice tone="error">{err}{engine==='regular'&&<p><a href={rtcPortal} rel="noreferrer" target="_blank">Abrir calculadora oficial online</a> · nenhum campo é transferido.</p>}</Notice>}<button className="btn primary align-start" disabled={busy}>{busy?'Consultando…':session?'Consultar motor':'Entrar para consultar'}<ArrowRight size={16}/></button></>}
     </fieldset></form>
     {result&&<section className="rtc-result stack" aria-label="Resultado da consulta"><h2>Resultado da consulta</h2><Notice>{result.report.summary}</Notice>
       <ReportExports report={result.report} original={result.original}/>

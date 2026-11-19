@@ -1,6 +1,7 @@
 {
   "version": "1.6.1",
   "revision": "150cccbe414d4a5edea703e4f7a424af5aa222c7",
+  "reference": {"version":"V0059","date":"2026-09-30","sha256":{"ncm":"0d6c30abbe934951379d5298782a12c9a3b61f75fad20556d3a54937496d1033","nbs":"5eb89febaf0bd4af0ed8edcf9d9b4a7f1a7602c75290268016c8f89489d50ec4"}},
   "documents": {"55":"NF-e","57":"CT-e","62":"NFCom","63":"BP-e","65":"NFC-e","66":"NF3-e","67":"CT-e OS","75":"NFAg","76":"NFGas","77":"NF-e ABI","83":"BP-e TA","91":"NFS-e","92":"NFS-e Via","93":"BP-e TM","94":"DERE","95":"DIR","96":"Duimp","97":"CT-e Simplificado"},
   "ibsCbs": [
     {"code":"000001","name":"Situações tributadas integralmente pelo IBS e CBS.","cst":"000","category":"Tributação integral","rtcTreatment":"Tributação integral","article":"LC 214/2025","nomenclature":"NBS ou NCM","from":"2026-01-01","until":null,"nominalGroup":true,"documents":[55,57,62,63,65,66,67,75,76,83,91,95,96]},

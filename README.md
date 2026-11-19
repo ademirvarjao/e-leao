@@ -10,14 +10,15 @@ npm test
 npm run dev
 ```
 
-Configuração do browser em `.env.example`. `npm run build` verifica TypeScript e gera a aplicação estática em `dist/`.
+Configuração do browser em `.env.example`. `npm run dev` e `npm run build` usam Python 3 com SQLite para preparar as referências públicas de NCM e NBS. Na primeira execução é necessário acesso ao GitHub da Receita, ou uma cópia da revisão fixada (ver [reprodução offline](docs/CENARIOS.md#reproduzir-os-metadados)). `npm run build` verifica TypeScript e gera a aplicação estática em `dist/`.
 
 ## Funções
 
 - Painel do espaço privado com indicadores, atividade e gráficos responsivos.
 - Catálogo de cenários visível, pesquisável por operação, CST/cClassTrib ou atividade do Simples. Opções, vigências e vínculos de documento do catálogo RTC da Receita; cenários usuais e título manual. [Cobertura, fontes, limites e reprodução do catálogo](docs/CENARIOS.md).
 - Estimativa rápida de IBS, CBS e IS em decimal exato. Quando a hipótese cabe no cálculo local, há sugestões opt-in por classificação, regime e data. A memória por tributo com as premissas, alíquotas manuais ou referências e dispositivos legais pode ser salva e exportada em PDF ou Excel (.xlsx); hipóteses complexas abrem o formulário da consulta RTC.
-- Formulários para regime regular, Simples e base da NFS-e, sem edição de JSON. Os relatórios exportáveis preservam os valores e os avisos do motor.
+- Consulta de NCM/NBS, hierarquia e vigência na base pública distribuída com o RTC, sem transmitir o código ou os dados da operação. A comparação opcional de versão com o piloto da Receita é separada do cálculo.
+- Formulários para regime regular, Simples e base da NFS-e, sem edição de JSON. **Verificar conexão do serviço** consulta a versão/prontidão da instância configurada, sem calcular ou enviar XML. Os relatórios exportáveis preservam os valores e os avisos do motor.
 - Rascunhos de NFS-e independentes da autorização, com direcionamento ao emissor oficial. Geração auxiliar de DANFSe a partir de XML nacional autorizado; não emite nota.
 - Solicitação de acesso, aprovação e convite manual; autenticação, recuperação de senha e dados próprios isolados por RLS no Supabase.
 - Consulta imediata de guias com fontes e IA generativa no dispositivo. **Ao abrir o Assistente fiscal**, o navegador prepara o Qwen3-0.6B automaticamente (~397 MB na primeira vez, com reuso do cache). Perguntas dos guias têm resposta direta; para perguntas livres, a fonte encontrada já aparece enquanto a IA prepara uma explicação. O painel de carregamento mostra apenas o progresso e a porcentagem. Em **Opções da conversa**, é possível escolher **Usar só os guias**. Não exige chave de IA nem envia perguntas a uma API externa.
