@@ -10,13 +10,17 @@ Há ainda cinco nomes usuais de operações onerosas (venda, serviço, locação
 
 ### Reproduzir os metadados
 
-Com Python 3 e SQLite, numa cópia separada das fontes da revisão acima:
+O RTC da Receita publica migrações para um **SQLite de referência**, não uma conexão ao cadastro de contribuintes. A compilação do e-Leão lê essa base em memória, não hospeda o motor Java nem consulta contas fiscais. Nesta edição, `VERSAO_BASE_DADO` informa **V0059, de 30/09/2026**. O importador verifica o SHA-256 do conjunto ordenado de migrações **antes** de executar SQL e confere as chaves estrangeiras. A licença [MIT do upstream](../public/licenses/receita-rtc-MIT.txt) acompanha a publicação.
 
-```sh
-python3 scripts/import-rtc-catalog.py /caminho/para/calculadora-rtc-regime-regular/flyway/sql --check
-```
+- `npm run rtc:dados` (também em `prebuild`/`predev`): baixa de `codeload.github.com/ReceitaFederal` a revisão fixada por SHA, sem token; confere `rtc-catalog.json`/`rtc-municipios.json` e gera apenas as tabelas públicas NCM e NBS em `public/rtc-referencias/` (fora do Git). Reutiliza os arquivos se os hashes coincidirem. Em uma compilação limpa a divergência ou a falta da fonte interrompe a publicação, não gera tabelas vazias.
+- Para **conferir a conexão e reproduzir** a edição, inclusive quando há cache: `python3 scripts/import-rtc-catalog.py --check`. Não altera os arquivos versionados. Para uma compilação **sem rede**, prepare primeiro a partir da cópia fixada: `python3 scripts/import-rtc-catalog.py /caminho/flyway/sql --prepare`.
+- Para uma atualização deliberada, reveja revisão, digest, migrações, cobertura, vigências e testes. Rodar o importador com o diretório SQL e sem `--check`/`--prepare` regenera o catálogo e seus hashes; uma nova release no GitHub não muda automaticamente o tratamento fiscal no site.
 
-Sem `--check`, o comando regenera `src/data/rtc-catalog.json`. Também regenera `src/data/rtc-municipios.json` para selecionar a UF e o município por nome sem procurar o código IBGE. Ambos são comparados por `--check`. O importador verifica o SHA-256 do conjunto ordenado de migrações antes de executá-las num SQLite em memória, verifica as chaves estrangeiras e exporta apenas metadados (classificação/atividade, situação, dispositivo, tratamento ou anexo, nomenclatura, vínculos de documento e datas). Não importa alíquotas nominais, NCM/NBS de terceiros ou valores de exemplos para preencher a tela. O frontend não baixa um banco, nem executa as migrações em produção. [Licença MIT do upstream](../public/licenses/receita-rtc-MIT.txt). Ao atualizar a versão, é necessária nova revisão dos vínculos, datas, regras locais e expectativas dos testes.
+### Consulta de NCM e NBS sem motor
+
+Em **Calculadora RTC → Consultar base pública da Receita**, informe o código e confira a data em **Fato gerador**. Também há um botão junto ao NCM/NBS do item do regime regular. O navegador carrega apenas a tabela necessária do próprio site, com verificação de integridade, não o banco inteiro. Códigos mantêm os zeros à esquerda. A consulta distingue código não encontrado, fora da vigência e tabela indisponível; a hierarquia dá contexto a descrições como “Outras”. Ex.: na V0059, `27101259` é “Outras” na subdivisão `2710125` (“Gasolinas”). **Não** classifica mercadoria/serviço, confirma benefício ou preenche alíquotas. Não há CPF, CNPJ ou dados de notas nessas tabelas.
+
+**Comparar versão com o piloto da Receita** é uma consulta remota separada e opcional. O gateway envia somente um GET de versão ao endereço fixado na distribuição oficial; não envia o código digitado. Uma divergência ou falha no piloto não altera a tabela local nem comprova queda da instância de cálculo. A consulta local não consome a cota de acesso ao motor.
 
 ## Quando há uma sugestão numérica?
 

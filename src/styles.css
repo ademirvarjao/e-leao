@@ -95,3 +95,14 @@
 .calc-context h2:focus-visible{outline:2px solid #996a24;outline-offset:3px}
 
 .rtc-fields .field:has(:required:not(:disabled))>span:first-child::after{content:" *";color:#876327}
+
+/* Reference data is separate from sending a fiscal operation. */
+.rtc-reference-panel{padding:1rem 1.25rem;margin-bottom:1rem}
+.rtc-reference-panel>summary,.rtc-reference-result summary{cursor:pointer;font-weight:650}
+.rtc-reference-panel>summary svg{vertical-align:text-bottom;margin-right:.4rem}
+.rtc-reference-panel>p,.rtc-reference-result p,.rtc-service-check p{margin:.55rem 0;overflow-wrap:anywhere}
+.rtc-code-field{min-width:0;display:flex;flex-direction:column;gap:.3rem}
+.rtc-service-check,.rtc-reference-result{font-size:.88rem;padding:.35rem 0}
+.rtc-service-check small{display:block;color:var(--muted)}
+.rtc-reference-result ul{padding-left:1.25rem}
+.rtc-reference-result li{margin:.25rem 0;overflow-wrap:anywhere}

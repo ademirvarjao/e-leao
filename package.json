@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "rtc:dados": "python3 scripts/import-rtc-catalog.py --prepare",
+    "predev": "npm run rtc:dados",
+    "prebuild": "npm run rtc:dados",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",

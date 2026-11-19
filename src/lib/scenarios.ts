@@ -4,7 +4,7 @@ import {validDate} from './fiscal';
 import {rateReference, type RateReference, type Tax} from './rateReferences';
 import type {Regime} from './types';
 
-export const catalogLabel = `Receita Federal · RTC ${catalog.version} · base V0059`;
+export const catalogLabel = `Receita Federal · RTC ${catalog.version} · base ${catalog.reference.version}`;
 export const catalogSource = `https://github.com/ReceitaFederal/calculadora-rtc-regime-regular/tree/${catalog.revision}/flyway/sql`;
 export type Scenario = {
   id: string; family: 'ibsCbs' | 'is' | 'sn'; code: string; name: string; label: string;
