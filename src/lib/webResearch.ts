@@ -1,18 +1,38 @@
 import {db} from './client';
 import {conceptIntent} from './guideIntents';
-import {followUp,type PromptMessage} from './assistant';
+import {followUp,resolveQuestion,type PromptMessage} from './assistant';
+import {normalize} from './knowledge';
+import type {Article} from './types';
 import {publicTerms,taxNames,validResearch,validTerms,type Research,type WebHit} from '../../supabase/functions/_shared/research';
 
-export function termsForResearch(question:string,previous?:string):string[]{
+export function termsForResearch(question:string,previous?:string,priorTerms?:string[]):string[]{
   const terms=publicTerms(question);
   if(terms.length && conceptIntent(question))return terms.map(t=>t==='IBS'||t==='CBS'?taxNames[t]:t);
   if(!previous)return terms;
   if(terms[0]==='alíquota' && terms.slice(1).every(t=>/^20\d{2}$/.test(t)) && /^e\s/i.test(question.trim())){
-    const taxes=publicTerms(previous).filter(t=>t==='IBS'||t==='CBS');return [...taxes,...terms];
+    const subjects=priorTerms?.length?priorTerms:publicTerms(previous);
+    const taxes=subjects.map(t=>t===taxNames.IBS?'IBS':t===taxNames.CBS?'CBS':t).filter(t=>t==='IBS'||t==='CBS');
+    return [...taxes,...terms];
   }
   if(terms.length || !followUp(question))return terms;
-  const prior=termsForResearch(previous),year=question.match(/20\d{2}/)?.[0];
+  const prior=priorTerms?.length?priorTerms:termsForResearch(previous),year=question.match(/\b20\d{2}\b/)?.[0];
   return year && prior.length?[...prior.filter(t=>!/^20\d{2}$/.test(t)),year]:prior;
+}
+// Decide on evidence before inference. Never run this tool on opening the
+// chat or while typing. A prior search carries only its public topic labels.
+export function planAssistantTurn(question:string,knowledge:Article[],canResearch:boolean,previous?:{question:string;guide?:Article;terms?:string[]}) {
+  const continuation=previous && followUp(question);
+  // After a web-only answer, "pode resumir?" isn't a new subject to rank
+  // against the guide catalog. Look up/reuse evidence for the same topic.
+  const resolved=continuation && !previous.guide && previous.terms?.length
+    ? {sources:[],useModel:false} : resolveQuestion(question,knowledge,previous?.guide);
+  const hasDirectAnswer=!resolved.useModel && resolved.sources.length>0;
+  const wantsCurrent=/\b(?:hoje|atual|atuais|atualizad[ao]s?|vigentes?|mais recente)\b/.test(normalize(question));
+  const restatingGuide=continuation && previous.guide && resolved.sources[0]?.id===previous.guide.id && !/\b20\d{2}\b/.test(question);
+  const priorTopic=previous?.guide && followUp(previous.question)?previous.guide.question:previous?.question;
+  const terms=canResearch && (!hasDirectAnswer || wantsCurrent) && !restatingGuide
+    ? termsForResearch(question,priorTopic,previous?.terms) : [];
+  return {...resolved,terms};
 }
 export type SearchOfficial=(terms:string[],signal:AbortSignal)=>Promise<Research>;
 export type SearchOutcome = {kind:'found';data:Research;cached:boolean} | {kind:'stopped'|'failed';message:string};
@@ -27,7 +47,7 @@ export const searchOfficial:SearchOfficial=async(terms,signal)=>{
     switch(response?.status){
       case 401:case 403: throw new SearchError('Pesquisa não autorizada. Confira a sessão e o acesso da conta.');
       case 429: throw new SearchError('Pesquisa não realizada: limite diário da busca ou conta inativa.');
-      case 404: throw new SearchError('A pesquisa online ainda não está disponível nesta instalação.');
+      case 404: throw new SearchError('O gateway desta instalação não reconheceu a pesquisa. Sem confirmação pela internet.');
       default: throw new SearchError('As fontes online estão indisponíveis. Sem confirmação pela internet.');
     }
   }

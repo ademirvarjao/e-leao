@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {JSDOM} from 'jsdom';
 import React from 'react';
 import {articles} from '../src/lib/knowledge';
+import type {Profile} from '../src/lib/types';
 import type {SearchOfficial} from '../src/lib/webResearch';
 import type {Research} from '../supabase/functions/_shared/research';
 import {lc214} from '../src/lib/legal';
@@ -19,7 +20,8 @@ test('assistente fiscal: início automático e respostas visíveis sem cancelar'
   const {render,screen,fireEvent,cleanup,waitFor,act}=await import('@testing-library/react');
   const {default:Assistant}=await import('../src/pages/Assistant');const {Ctx}=await import('../src/lib/workspace');const {db}=await import('../src/lib/client');
   const space={knowledge:articles,feedback:async()=>{},notify:()=>{}} as React.ContextType<typeof Ctx>;
-  const open=(loadModel:ModelLoader,search?:SearchOfficial)=>render(React.createElement(React.StrictMode,null,React.createElement(Ctx.Provider,{value:search?{...space!,profile:{id:'member',display_name:'Teste',created_at:'',role:'member',active:true,approval_status:'approved'}}:space},React.createElement(Assistant,{loadModel,search}))));
+  const member:Profile={id:'member',display_name:'Teste',created_at:'',role:'member',active:true,approval_status:'approved'};
+  const open=(loadModel:ModelLoader,search?:SearchOfficial,profile:Profile|null=search?member:null)=>render(React.createElement(React.StrictMode,null,React.createElement(Ctx.Provider,{value:{...space!,profile}},React.createElement(Assistant,{loadModel,search}))));
   const ask=(question:string)=>{fireEvent.change(screen.getByLabelText('Sua pergunta'),{target:{value:question}});fireEvent.click(screen.getByLabelText('Enviar pergunta'))};
   const replies=()=>screen.getByRole('log').querySelectorAll('.bubble.agent');
   const ready=()=>waitFor(()=>assert.ok(document.querySelector('.chat[data-mode="ready"]')));
@@ -51,29 +53,46 @@ test('assistente fiscal: início automático e respostas visíveis sem cancelar'
     assert.equal(calls,0);assert.equal(screen.queryByRole('button',{name:/Cancelar/}),null);
   });
   const onlineResult:Research={checkedAt:'2026-11-18T12:00:00Z',unavailable:['dou'],hits:[{provider:'receita',title:'Orientação sobre créditos de CBS',excerpt:'O crédito da CBS não é automático. Consulte o enquadramento.',url:'https://www.gov.br/receitafederal/pt-br/assuntos/noticias/teste'}]};
-  await t.test('pesquisa automática informa o envio, exibe título, órgão, trecho e link; o modelo lê a pesquisa antes de responder',async()=>{
-    const lookup=deferred<Research>();const queries:string[][]=[];let calls=0;
-    open(async()=>({close:()=>{},complete:async p=>{calls++;assert.ok(p[1].content.includes(onlineResult.hits[0].excerpt));return '1'}}),async terms=>{queries.push(terms);return lookup.promise});
-    await ready();const q='E o crédito da CBS para Cliente Particular 123.456.789-01?';
-    fireEvent.change(screen.getByLabelText('Sua pergunta'),{target:{value:q}});assert.ok(screen.getByText('Termos a enviar: CBS · crédito'));assert.equal(queries.length,0);
-    fireEvent.click(screen.getByLabelText('Enviar pergunta'));assert.deepEqual(queries,[['CBS','crédito']]);assert.ok(screen.getByText('Pesquisando em fontes oficiais…'));assert.equal(calls,0);
-    await act(async()=>lookup.resolve(onlineResult));await screen.findByText('e-Leão · IA local com fonte');assert.equal(calls,1);
-    assert.equal(replies()[0].querySelector('p')!.textContent,onlineResult.hits[0].excerpt);assert.match(replies()[0].textContent!,/Fonte da resposta · Receita Federal/);
-    assert.equal(screen.getByRole('link',{name:/Orientação sobre créditos/}).getAttribute('href'),onlineResult.hits[0].url);assert.ok(screen.getByText(/Consulta parcial/));
+  await t.test('ferramenta automática: só consulta ao enviar, ignora a antiga preferência e cita o trecho escolhido pela IA',async()=>{
+    dom.window.localStorage.setItem('eleao-assistente-pesquisa','off');
+    const lookup=deferred<Research>(), queries:string[][]=[];let calls=0;
+    const data={...onlineResult,hits:[{...onlineResult.hits[0],title:'Outra notícia sobre CBS',url:onlineResult.hits[0].url+'-2',excerpt:'Orientações sobre a reforma tributária.'},...onlineResult.hits]};
+    open(async()=>({close:()=>{},complete:async p=>{calls++;assert.ok(p[1].content.includes(data.hits[1].excerpt));return '2'}}),async terms=>{queries.push(terms);return lookup.promise});
+    await ready();assert.equal(screen.queryByRole('checkbox',{hidden:true}),null);
+    fireEvent.change(screen.getByLabelText('Sua pergunta'),{target:{value:'E o crédito da CBS para Cliente Particular 123.456.789-01?'}});
+    assert.equal(screen.queryByText(/Termos a enviar/),null);assert.equal(queries.length,0);
+    fireEvent.click(screen.getByLabelText('Enviar pergunta'));assert.deepEqual(queries,[['CBS','crédito']]);assert.ok(screen.getByText('Consultando fontes oficiais…'));assert.equal(calls,0);
+    await act(async()=>lookup.resolve(data));await screen.findByText('e-Leão · IA local com fonte');assert.equal(calls,1);
+    const reply=replies()[0];assert.equal(reply.querySelector('p')!.textContent,data.hits[1].excerpt);
+    assert.match(reply.querySelector('.research-hit')!.textContent!,/Fonte da resposta · Receita Federal/);
+    assert.equal(screen.getByRole('link',{name:/Orientação sobre créditos/}).getAttribute('href'),data.hits[1].url);assert.ok(screen.getByText(/Consulta parcial/));
   });
-  await t.test('guia exato não é sobrescrito pela busca, erros não bloqueiam a resposta e desativar impede o envio',async()=>{
-    let count=0;const search:SearchOfficial=async()=>{if(++count===1)return onlineResult;throw Error('detalhe privado')};
-    open(async()=>plain,search);await ready();ask('o que é ibs e cbs?');await screen.findByText(/Resultado relacionado · Receita Federal/);
-    assert.match(replies()[0].querySelector('p')!.textContent!,/Imposto sobre Bens e Serviços/);assert.ok(screen.getByRole('link',{name:'O que são IBS e CBS?'}));
-    ask('qual o percentual de IBS em 2026?');await screen.findByText(/Pesquisa indisponível/);assert.ok(screen.getByText(transitionGuide.answer));assert.equal(screen.queryByText('detalhe privado'),null);
-    fireEvent.click(screen.getByRole('checkbox',{name:/Pesquisar na internet/}));ask('Qual o significado de CBS?');assert.equal(count,2);
+  await t.test('usa a fonte revisada sem gastar busca; uma falha ao consultar vigência não bloqueia nem confirma o guia',async()=>{
+    const queries:string[][]=[];open(async()=>plain,async terms=>{queries.push(terms);throw Error('detalhe privado')});
+    await ready();ask('o que é ibs e cbs?');assert.match(replies()[0].querySelector('p')!.textContent!,/Imposto sobre Bens e Serviços/);
+    assert.equal(replies()[0].querySelector('a')!.href,lc214);ask(transitionGuide.question);assert.equal(queries.length,0);
+    ask('Qual a alíquota vigente do IBS em 2026?');await screen.findByText(/Pesquisa indisponível/);
+    assert.deepEqual(queries,[['IBS','alíquota','2026']]);assert.equal(replies()[2].querySelector('p')!.textContent,transitionGuide.answer);
+    assert.match(replies()[2].textContent!,/Fonte do guia/);assert.doesNotMatch(replies()[2].textContent!,/Fonte da resposta|detalhe privado/);
   });
-  await t.test('sem o modelo pronto a pesquisa já mostra a fonte; uma busca antiga não muda a resposta mais recente',async()=>{
+  await t.test('sem o modelo pronto já mostra a origem; uma busca cancelada não contamina outra resposta',async()=>{
     const load=deferred<LocalModel>(),old=deferred<Research>();let signal!:AbortSignal;let n=0;
     open(async()=>load.promise,async(_t,s)=>{if(!n++){signal=s;return old.promise}return onlineResult});
-    ask('O que é IBS?');ask('Há crédito presumido de CBS?');await screen.findByText('e-Leão · Trecho da pesquisa');assert.ok(signal.aborted);
+    ask('Qual o prazo de restituição de IBS?');ask('Há crédito presumido de CBS?');await screen.findByText('e-Leão · Trecho da pesquisa');assert.ok(signal.aborted);
     await act(async()=>old.resolve(onlineResult));assert.equal(replies()[0].querySelector('.research-hit'),null);assert.equal(replies()[1].querySelector('.research-hit a')?.getAttribute('href'),onlineResult.hits[0].url);
-    fireEvent.click(screen.getByLabelText('Opções da conversa'));fireEvent.click(screen.getByRole('button',{name:'Usar só os guias'}));ask('Qual é a CBS?');assert.equal(n,2);
+    fireEvent.click(screen.getByLabelText('Opções da conversa'));fireEvent.click(screen.getByRole('button',{name:'Usar só os guias'}));ask('Como funciona o ressarcimento da CBS?');assert.equal(n,2);
+  });
+  await t.test('não pesquisa sem termo fiscal nem sem conta aprovada e ativa',async()=>{
+    let calls=0;const search:SearchOfficial=async()=>{calls++;return onlineResult};
+    for(const profile of [null,{...member,approval_status:'pending'} as Profile,{...member,active:false}]){
+      const page=open(async()=>plain,search,profile);await ready();ask('Há crédito presumido de CBS?');assert.equal(calls,0);page.unmount();
+    }
+    open(async()=>plain,search);await ready();ask('Olá!');await act(async()=>{});assert.equal(calls,0);assert.equal(document.querySelector('.research-status'),null);
+  });
+  await t.test('sem trecho que responda, a IA não transforma um resultado relacionado em confirmação',async()=>{
+    open(async()=>({...plain,complete:async()=>'0'}),async()=>onlineResult);await ready();ask('Há crédito presumido de CBS?');
+    await screen.findByText(/Os trechos encontrados não permitem confirmar/);assert.doesNotMatch(replies()[0].textContent!,/Fonte da resposta/);
+    assert.ok(screen.getByText('Resultados relacionados (1)'));assert.match(replies()[0].textContent!,/Consulta parcial/);
   });
   await t.test('durante a carga já responde; explica a última pergunta livre usando o mesmo balão e valida o texto final',async()=>{
     const load=deferred<LocalModel>(),result=deferred<string>();let calls=0,pulse!:ModelProgress;

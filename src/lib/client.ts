@@ -19,7 +19,7 @@ async function fiscalFailure(action:FiscalAction, response?:Response) {
   const body=await response.json().catch(()=>null);
   if(status===404 && (action==='check-service' || action==='reference-version') && body?.error==='Ação não reconhecida.') return integrationMessages.oldGateway;
   if(status===502 || status===503) {
-    // The original (v3) Edge function in production returns this exact 502 without a code.
+    // Older v3 installations return this exact 502 without a code.
     if(body?.error==='Este serviço não está configurado pelo administrador. Consulte as instruções de implantação.') return integrationMessages.notConfigured;
     if(body?.error==='A integração deve usar HTTPS.') return integrationMessages.config;
     switch(body?.code) {

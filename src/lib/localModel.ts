@@ -30,16 +30,19 @@ export const loadLocalModel: ModelLoader = async (signal,progress) => {
     if (file.size !== modelBytes || file.validate() !== ModelValidationStatus.VALID) {await file.remove(); throw Error('incomplete')}
     progress(100);
     // CPU-only single-thread works on static Pages without WebGPU, COOP or COEP headers.
-    await llm.loadModel(file,{n_threads:1,n_gpu_layers:0,n_parallel:1,n_ctx:2048,n_batch:128,warmup:false,reasoning:false});
+    await llm.loadModel(file,{n_threads:1,n_gpu_layers:0,n_parallel:1,n_ctx:2048,n_batch:64,warmup:false,reasoning:false});
     signal.throwIfAborted();
     return {close, async complete(messages,abortSignal,maxTokens=144,progress) {
       abortSignal.throwIfAborted();
-      let text='',processed=0,truncated=false;
+      // The first real prompt-progress event can report zero. On a slow CPU
+      // wllama delivers it after evaluating a batch, before reporting that
+      // batch's tokens. Count it once; repeated zeros aren't progress.
+      let text='',processed=-1,truncated=false;
       await llm.createChatCompletion({messages,abortSignal,temperature:0.15,max_tokens:Math.min(144,maxTokens),chat_template_kwargs:{enable_thinking:false},
         stream:true,return_progress:true,onData:chunk=>{
           abortSignal.throwIfAborted();
-          const n=chunk.prompt_progress?.processed ?? 0;
-          if(n>processed){processed=n;progress?.('reading')}
+          const n=chunk.prompt_progress?.processed;
+          if(n!==undefined && n>processed){processed=n;progress?.('reading')}
           const choice=chunk.choices?.[0];
           // Report activity, not unverified tokens (which could reverse a tax rate).
           if(choice?.delta?.content){text+=choice.delta.content;progress?.('writing')}
