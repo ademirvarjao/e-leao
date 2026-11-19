@@ -27,7 +27,9 @@ test('convite e recuperação permanecem visíveis para copiar; outras ações a
   fireEvent.click(await screen.findByRole('button',{name:/Solicitações/}));
   fireEvent.click(screen.getByRole('button',{name:'Gerar convite'}));
   fireEvent.click(screen.getByRole('button',{name:'Confirmar'}));
-  const link=await screen.findByLabelText('Link pessoal') as HTMLInputElement;
+  // A labelled input may already exist before the effect calls showModal().
+  await screen.findByRole('dialog',{name:'Convite gerado'});
+  const link=screen.getByLabelText('Link pessoal') as HTMLInputElement;
   assert.match(link.value,/^https:\/\/example\.test\/#\/convite\/[0-9a-f]{64}$/);
   assert.equal(reloads,0);assert.ok(calls.includes('eleao_issue_invite'));
   fireEvent.click(screen.getByRole('button',{name:'Copiar link'}));await waitFor(()=>assert.equal(copied,link.value));
@@ -36,7 +38,8 @@ test('convite e recuperação permanecem visíveis para copiar; outras ações a
   fireEvent.click(screen.getByRole('button',{name:'Usuários'}));
   fireEvent.click(screen.getByRole('button',{name:'Recuperar senha'}));
   fireEvent.click(screen.getByRole('button',{name:'Confirmar'}));
-  const reset=await screen.findByLabelText('Link pessoal') as HTMLInputElement;
+  await screen.findByRole('dialog',{name:'Convite gerado'});
+  const reset=screen.getByLabelText('Link pessoal') as HTMLInputElement;
   assert.match(reset.value,/^https:\/\/example\.test\/#\/recuperacao\/[0-9a-f]{64}$/);
   assert.equal(reloads,0);assert.ok(calls.includes('eleao_issue_password_reset'));
   fireEvent.click(screen.getByRole('button',{name:'Fechar'}));

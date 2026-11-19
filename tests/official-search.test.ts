@@ -2,8 +2,9 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {publicTerms,validTerms,validHit,selectHits,validResearch,taxNames} from '../supabase/functions/_shared/research';
 import {readDou,readLexml,readReceita,lexmlQuery} from '../supabase/functions/eleao-api/research';
-import {createResearchSession,makeWebPrompt,webAnswer,termsForResearch,searchOfficial} from '../src/lib/webResearch';
+import {createResearchSession,makeWebPrompt,webAnswer,termsForResearch,planAssistantTurn,searchOfficial} from '../src/lib/webResearch';
 import {db} from '../src/lib/client';
+import {articles,glossaryGuides} from '../src/lib/knowledge';
 
 const douItem={urlTitle:'ato-de-teste-1',title:'Créditos da CBS',content:'<b>O crédito de CBS</b> depende das condições previstas no ato.',pubDate:'01/09/2026'};
 const markup=(rows:unknown)=>`<script id="_br_com_seatecnologia_in_buscadou_BuscaDouPortlet_params" type="application/json">${JSON.stringify({jsonArray:rows})}</script>`;
@@ -24,6 +25,16 @@ test('somente tópicos públicos e ano saem do dispositivo, inclusive em continu
   assert.deepEqual(publicTerms('crédito presumido de IBS'),['IBS','crédito presumido']);
   assert.deepEqual(termsForResearch('Outro assunto?','CBS'),[]);
   for(const terms of [[],['2026'],['CBS','nome externo'],['CBS','IBS','IBS'],['CBS','2026','2027'],['__proto__'],{terms:['CBS']}])assert.equal(validTerms(terms),false);
+});
+test('planeja a ferramenta pela evidência disponível; continua o assunto, não o guia de outra palavra',()=>{
+  const plan=(q:string,prior?:Parameters<typeof planAssistantTurn>[3])=>planAssistantTurn(q,articles,true,prior);
+  const glossary=plan('O que é IBS e CBS?');assert.deepEqual(glossary.terms,[]);assert.equal(glossary.sources[0].id,glossaryGuides.both.id);
+  assert.deepEqual(plan('Explique melhor',{question:'O que é IBS e CBS?',guide:glossary.sources[0]}).terms,[]);
+  assert.deepEqual(plan('E em 2027?',{question:'Explique melhor',guide:glossary.sources[0]}).terms,[taxNames.IBS,taxNames.CBS,'2027']);
+  const q='Qual o prazo de restituição da CBS em 2026?',gap=plan(q);assert.deepEqual(gap.terms,['CBS','restituição','prazo','2026']);
+  const again=plan('Pode resumir?',{question:q,terms:gap.terms});assert.deepEqual(again.terms,gap.terms);assert.deepEqual(again.sources,[]);
+  assert.deepEqual(plan('E em 2027?',{question:'Pode resumir?',terms:again.terms}).terms,['CBS','restituição','prazo','2027']);
+  assert.deepEqual(planAssistantTurn(q,articles,false).terms,[]);
 });
 test('lê RSS/Atom, ementas de legislação federal e o JSON do DOU; não executa HTML nem aceita fontes externas',()=>{
   assert.equal(hit.excerpt,'O crédito da CBS não é automático. Consulte o ato aplicável.');
@@ -48,6 +59,7 @@ test('o cliente rejeita resposta malformada e não exibe a mensagem privada do s
   let status=200,body:unknown={hits:[{...hit,url:'https://falso.test'}]};
   const invoke=t.mock.method(Object.getPrototypeOf(db.functions),'invoke',async()=>({response:new Response(null,{status}),data:body,error:status===200?null:Error('internal details')}));
   const signal=new AbortController().signal;await assert.rejects(searchOfficial(['CBS'],signal),/origem/);
+  status=404;await assert.rejects(searchOfficial(['CBS'],signal),/gateway.*Sem confirmação/i);
   status=429;await assert.rejects(searchOfficial(['CBS'],signal),/limite diário/);status=200;body=data;assert.deepEqual(await searchOfficial(['CBS'],signal),data);
   assert.deepEqual(invoke.mock.calls.at(-1)!.arguments,['eleao-api',{body:{action:'official-search',payload:{terms:['CBS']}},signal}]);
   await db.auth.dispose();await db.realtime.disconnect();

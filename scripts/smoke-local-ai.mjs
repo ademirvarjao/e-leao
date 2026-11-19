@@ -62,11 +62,14 @@ try{
     if(fixtures.has(key))return route.fulfill({json:fixtures.get(key)});
     unexpected.push(key);return route.abort();
   });
-  await context.addInitScript(url=>{const get=window.fetch.bind(window);window.fetch=(input,init)=>{
-    if(input===url)return get('/weights',init);
-    if(input===url.replace('/resolve/','/raw/'))return get('/pointer',init);
-    return get(input,init);
-  }},modelURL);
+  await context.addInitScript(url=>{
+    localStorage.setItem('eleao-assistente-pesquisa','off'); // A superseded setting must not disable the tool.
+    const get=window.fetch.bind(window);window.fetch=(input,init)=>{
+      if(input===url)return get('/weights',init);
+      if(input===url.replace('/resolve/','/raw/'))return get('/pointer',init);
+      return get(input,init);
+    };
+  },modelURL);
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   await page.goto(origin+'/e-leao/#/visao-geral');
   await page.getByRole('button',{name:'Entrar',exact:true}).click();
@@ -76,6 +79,7 @@ try{
   const link=page.getByRole('link',{name:'Assistente fiscal',exact:true});await link.waitFor();assert.equal(downloads,0,'A página inicial não baixa a IA');
   await link.click();
   const ready=page.locator('.chat[data-mode="ready"]');await ready.waitFor({timeout:120_000});
+  assert.equal(await page.getByRole('checkbox',{name:/pesquis/i}).count(),0);
   const start=Date.now();
   await page.getByRole('button',{name:transitionGuide.question,exact:true}).click();
   const direct=page.locator('.bubble.agent').filter({hasText:'e-Leão · Guia revisado'});
@@ -97,6 +101,7 @@ try{
   assert.equal(await definition.locator('small').innerText(),'e-Leão · Guia revisado');
   assert.equal(await page.getByRole('button',{name:/Cancelar explicação/}).count(),0);
   console.log('Pergunta digitada sobre IBS e CBS: definições legais, sem confundir com a pergunta anterior sobre alíquotas.');
+  assert.equal(searchQueries.length,0,'As respostas diretas com fonte não gastam a cota da ferramenta');
   // Interrupt a real worker, not the FAQ shortcut; never revive its cancelled turn.
   await ask('Como preparo um rascunho de nota de serviço?');
   await page.getByRole('button',{name:'Cancelar explicação'}).click();
@@ -105,18 +110,24 @@ try{
   assert.equal(await answers.last().locator('small').innerText(),'e-Leão · Guia revisado');
   await ask('Para que serve o DANFSe?');
   await page.locator('.bubble.agent').last().getByRole('link',{name:'O que é o DANFSe?'}).waitFor({timeout:3000});
-  const reply=page.locator('.bubble.agent').filter({hasText:'e-Leão · IA local'});
-  await reply.waitFor({timeout:95_000});assert.equal(await answers.count(),4);
+  const reply=answers.last();
+  // Wait for the actual tool and generation to finish. On abstention/failure,
+  // report the state immediately instead of waiting 95 s for a label that won't appear.
+  async function checkCompleted(turn,expected){
+    await turn.locator('.research-result').waitFor({timeout:18_000});
+    await turn.locator('.reply-progress').waitFor({state:'hidden',timeout:95_000});
+    assert.equal(await turn.locator('small').innerText(),expected,[await turn.innerText(),...await page.locator('.chat-notice').allInnerTexts()].join('\n'));
+  }
+  await checkCompleted(reply,'e-Leão · IA local');assert.equal(await answers.count(),4);
   const text=await reply.locator('p').innerText();assert.match(text,/nota|pdf|nfs|auxiliar/i);
   assert.ok(await reply.getByRole('link',{name:'O que é o DANFSe?'}).count());
+  const beforeLookup=searchQueries.length;
   await ask('Segundo a LC 214, o que significa IBS?');
   const online=page.locator('.bubble.agent').last();
-  await online.getByRole('link',{name:/LC 214 — trecho de teste/}).waitFor();
-  await online.locator('.reply-progress').waitFor({state:'hidden',timeout:95_000});
-  assert.equal(await online.locator('small').innerText(),'e-Leão · IA local com fonte',await online.innerText());
+  await checkCompleted(online,'e-Leão · IA local com fonte');
   assert.equal(await online.locator('p').innerText(),webHit.excerpt);
   assert.equal(await online.getByRole('link',{name:/LC 214 — trecho de teste/}).getAttribute('href'),webHit.url);
-  assert.ok(searchQueries.some(terms=>terms.includes('IBS')&&terms.includes('LC 214')));
+  assert.deepEqual(searchQueries.slice(beforeLookup),[['IBS','LC 214']],'Uma chamada interna, sem ativação manual');
   console.log('IA real leu o resultado de pesquisa de teste e respondeu com o trecho e a fonte correspondentes.');
   // Reload the whole page, not only the JS instance. A second transfer must not occur.
   await page.reload();await ready.waitFor({timeout:60_000});
@@ -148,4 +159,8 @@ try{
   assert.ok(await answers.last().getByRole('link',{name:'O que é o DANFSe?'}).count());
   assert.deepEqual(unexpected,[]);assert.deepEqual(errors,[]);
   console.log(`Início automático, cancelamento, inferência real, reuso/remoção do cache e consulta durante falha de download confirmados. Resposta de teste: ${text}`);
+}catch(error){
+  const page=context?.pages().at(-1);
+  if(page && !page.isClosed())console.error('Estado do teste:',await page.locator('.chat-notice, .bubble.agent:last-child').allInnerTexts().catch(()=>[]));
+  throw error;
 }finally{await context?.close();server.closeAllConnections();server.close();await rm(profile,{recursive:true,force:true})}
